@@ -70,17 +70,20 @@ export default async function CategoriesPage() {
                           action={deleteCategory}
                           fields={{ id: c.id }}
                           variant="danger"
-                          disabled={c._count.products > 0}
-                          title={c._count.products > 0 ? "لا يمكن حذف فئة تحتوي على منتجات" : undefined}
-                          confirm={{
-                            title: "حذف الفئة؟",
-                            body: (
-                              <>
-                                سيتم حذف الفئة <strong className="text-text">«{c.name}»</strong> نهائياً.
-                              </>
-                            ),
-                            confirmLabel: "حذف",
-                          }}
+                          // With products attached the click goes straight to the server, which explains why it can't delete.
+                          confirm={
+                            c._count.products > 0
+                              ? undefined
+                              : {
+                                  title: "حذف الفئة؟",
+                                  body: (
+                                    <>
+                                      سيتم حذف الفئة <strong className="text-text">«{c.name}»</strong> نهائياً.
+                                    </>
+                                  ),
+                                  confirmLabel: "حذف",
+                                }
+                          }
                         >
                           <TrashIcon className="size-3.5" />
                           حذف

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { slugify } from "@/lib/format";
-import type { FormAction } from "@/app/admin/_lib/form-state";
+import type { FormAction, FormState } from "@/app/admin/_lib/form-state";
 import { FieldError, FormMessage } from "./ui";
 import { useFormAction } from "./useFormAction";
 
@@ -37,7 +37,7 @@ function CategoryFields({
   state,
 }: {
   category?: CategoryDefaults;
-  state: Parameters<typeof FieldError>[0]["state"];
+  state: FormState;
 }) {
   const [name, setName] = useState(category?.name ?? "");
   const [slug, setSlug] = useState(category?.slug ?? "");

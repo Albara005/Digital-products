@@ -45,7 +45,10 @@ export function ActionButton({
 
   const message =
     state?.message && (!state.ok || showSuccess) ? (
-      <span role={state.ok ? "status" : "alert"} className={`text-xs ${state.ok ? "text-success" : "text-danger"}`}>
+      <span
+        role={state.ok ? "status" : "alert"}
+        className={`max-w-72 text-xs leading-relaxed ${state.ok ? "text-success" : "text-danger"}`}
+      >
         {state.message}
       </span>
     ) : null;
