@@ -60,7 +60,12 @@ async function loadVerifiedOrder(id: string, token: string | undefined) {
           deliveryNote: true,
           deliveredAt: true,
           variant: { select: { product: { select: { warrantyHours: true } } } },
-          inventoryItems: { orderBy: [{ soldAt: "asc" }, { id: "asc" }], select: { id: true, payload: true } },
+          // Units are linked as RESERVED at checkout; only SOLD (delivered) units may be revealed.
+          inventoryItems: {
+            where: { status: "SOLD" },
+            orderBy: [{ soldAt: "asc" }, { id: "asc" }],
+            select: { id: true, payload: true },
+          },
         },
       },
     },
@@ -130,9 +135,10 @@ export default async function OrderPage({ params, searchParams }: Props) {
 
   const items = order.items.map((item) => {
     const warrantyHours = item.variant.product.warrantyHours;
+    const revealItem = canReveal && !!item.deliveredAt;
     return {
       ...item,
-      secrets: canReveal
+      secrets: revealItem
         ? item.inventoryItems.map((inv) => ({ id: inv.id, value: reveal(inv.payload, `inventory item ${inv.id}`) }))
         : [],
       note: canReveal && item.deliveryNote ? reveal(item.deliveryNote, `delivery note of item ${item.id}`) : null,

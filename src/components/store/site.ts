@@ -46,7 +46,10 @@ export function formatWarranty(hours: number) {
 
 /** Short Latin initials for placeholder tiles ("Steam Wallet" → "SW"). */
 export function initials(name: string) {
-  const words = name.trim().split(/\s+/).filter(Boolean);
+  const all = name.trim().split(/\s+/).filter(Boolean);
+  // Prefer the Latin brand words ("بطاقة PlayStation Store" → "PS") so scripts don't mix
+  const latin = all.filter((w) => /^[A-Za-z0-9]/.test(w));
+  const words = latin.length ? latin : all;
   const letters = words.slice(0, 2).map((w) => Array.from(w)[0] ?? "");
   return letters.join("").toUpperCase() || "N";
 }

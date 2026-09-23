@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { MAX_LINE_QUANTITY } from "@/lib/cart";
 import { IconBolt, IconHeadset, IconLock, IconShieldCheck, IconSparkles } from "@/components/store/icons";
 import { ProductGrid } from "@/components/store/product-card";
 import { ProductMedia } from "@/components/store/product-media";
@@ -108,7 +109,8 @@ export default async function ProductPage({ params }: Props) {
                   label: v.label,
                   priceCents: v.priceCents,
                   currency: v.currency,
-                  available: v.available,
+                  // Enough to drive the UI (low-stock label, quantity cap) without publishing exact stock levels.
+                  available: Math.min(v.available, MAX_LINE_QUANTITY),
                 }))}
               />
             ) : (

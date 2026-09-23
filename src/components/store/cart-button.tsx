@@ -10,7 +10,7 @@ export function CartButton() {
   return (
     <Link
       href="/cart"
-      aria-label={shown ? `السلة، ${count} منتج` : "السلة"}
+      aria-label={shown ? `السلة (${count})` : "السلة"}
       className="relative grid size-10 place-items-center rounded-lg border border-border bg-surface text-text transition hover:border-volt hover:text-volt"
     >
       <IconBag className="size-5" />

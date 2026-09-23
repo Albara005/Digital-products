@@ -176,7 +176,8 @@ export const SEARCH_MAX_LENGTH = 80;
 export async function searchProducts(query: string) {
   const q = query.trim().slice(0, SEARCH_MAX_LENGTH);
   if (!q) return [];
-  const contains = { contains: q, mode: "insensitive" } as const;
+  // Prisma passes `contains` straight into ILIKE, so LIKE wildcards must be escaped to match literally.
+  const contains = { contains: q.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" } as const;
   const rows = await prisma.product.findMany({
     where: {
       ...listable,

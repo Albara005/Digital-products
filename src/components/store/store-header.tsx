@@ -9,7 +9,7 @@ export function StoreHeader({ categories }: { categories: NavCategory[] }) {
   return (
     <header className="sticky top-0 z-40 border-b border-border/80 bg-bg/80 backdrop-blur-xl supports-[backdrop-filter]:bg-bg/65">
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6">
-        <Logo />
+        <Logo priority />
         <SearchForm className="mx-auto hidden w-full max-w-md md:block" />
         <div className="ms-auto flex items-center gap-2 md:ms-0">
           <Link
