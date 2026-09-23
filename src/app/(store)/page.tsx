@@ -1,0 +1,267 @@
+import Image from "next/image";
+import Link from "next/link";
+import {
+  IconArrow,
+  IconBolt,
+  IconBox,
+  IconClock,
+  IconHeadset,
+  IconLock,
+  IconShieldCheck,
+} from "@/components/store/icons";
+import { ProductGrid } from "@/components/store/product-card";
+import { categoryHref } from "@/components/store/site";
+import { EmptyState, SectionHeading } from "@/components/store/ui";
+import { getFeaturedProducts, getHomeCategories } from "./_lib/queries";
+
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  const [categories, featured] = await Promise.all([getHomeCategories(), getFeaturedProducts(8)]);
+
+  return (
+    <>
+      <Hero />
+      <TrustStrip />
+
+      <section id="categories" className="mx-auto max-w-7xl scroll-mt-32 px-4 pt-16 sm:px-6 sm:pt-24">
+        <SectionHeading
+          index="01"
+          eyebrow="Categories"
+          title="تصفّح الأقسام"
+          description="اختر القسم وابدأ — كل المنتجات رقمية وتصلك بدون شحن أو انتظار."
+        />
+        {categories.length > 0 ? (
+          <ul className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {categories.map((c, i) => (
+              <li key={c.id} className="flex">
+                <Link
+                  href={categoryHref(c.slug)}
+                  className="group card relative flex w-full items-center gap-4 overflow-hidden p-5 transition hover:border-volt/60"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_120%_at_0%_50%,rgba(212,255,61,0.10),transparent_70%)] opacity-0 transition group-hover:opacity-100"
+                  />
+                  <span
+                    dir="ltr"
+                    className="relative font-display text-4xl leading-none font-bold tracking-tighter text-transparent [-webkit-text-stroke:1px_var(--color-volt)] sm:text-5xl"
+                  >
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <span className="relative min-w-0 flex-1">
+                    <span className="block truncate text-lg font-bold">{c.name}</span>
+                    <span className="mt-0.5 line-clamp-1 block text-sm text-muted">
+                      {c.description || `${c.productCount} ${c.productCount === 1 ? "منتج" : "منتجات"}`}
+                    </span>
+                  </span>
+                  <span className="relative grid size-9 shrink-0 place-items-center rounded-full border border-border text-muted transition group-hover:border-volt group-hover:bg-volt group-hover:text-bg">
+                    <IconArrow className="size-4" />
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="mt-8">
+            <EmptyState
+              icon={<IconBox className="size-7" />}
+              title="المتجر يجهّز منتجاته"
+              description="نضيف المنتجات حالياً، عد قريباً أو تواصل معنا إن كنت تبحث عن شيء محدد."
+            >
+              <Link href="/contact" className="btn-ghost">
+                تواصل معنا
+              </Link>
+            </EmptyState>
+          </div>
+        )}
+      </section>
+
+      {featured.length > 0 ? (
+        <section className="mx-auto max-w-7xl px-4 pt-16 sm:px-6 sm:pt-24">
+          <SectionHeading
+            index="02"
+            eyebrow="Featured"
+            title="الأكثر طلباً"
+            description="منتجات مختارة يطلبها لاعبونا باستمرار."
+          />
+          <div className="mt-8">
+            <ProductGrid products={featured} priorityCount={4} />
+          </div>
+        </section>
+      ) : null}
+
+      <HowItWorks />
+    </>
+  );
+}
+
+function Hero() {
+  return (
+    <section className="relative isolate overflow-hidden border-b border-border">
+      {/* Backdrop: volt glow + fading grid */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 -z-10 bg-[radial-gradient(55%_70%_at_20%_30%,rgba(212,255,61,0.16),transparent_70%)]"
+      />
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 -z-10 opacity-[0.06] [background-image:linear-gradient(var(--color-volt)_1px,transparent_1px),linear-gradient(90deg,var(--color-volt)_1px,transparent_1px)] [background-size:44px_44px] [mask-image:radial-gradient(70%_80%_at_50%_40%,black,transparent)]"
+      />
+
+      <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-14 sm:px-6 sm:py-20 lg:grid-cols-[1.15fr_1fr] lg:py-24">
+        <div>
+          <p className="inline-flex items-center gap-2 rounded-full border border-volt/30 bg-volt/10 px-3 py-1 text-xs font-bold text-volt">
+            <span className="relative flex size-2">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-volt opacity-60" />
+              <span className="relative inline-flex size-2 rounded-full bg-volt" />
+            </span>
+            التسليم يعمل الآن — على مدار الساعة
+          </p>
+
+          <h1 className="mt-6 text-4xl leading-[1.15] font-bold sm:text-5xl lg:text-6xl">
+            أكوادك تصلك
+            <br />
+            <span className="relative inline-block text-volt [text-shadow:0_0_40px_rgba(212,255,61,0.35)]">
+              في ثوانٍ.
+            </span>
+          </h1>
+
+          <p className="mt-6 max-w-xl text-base leading-8 text-muted sm:text-lg">
+            بطاقات هدايا الألعاب، الاشتراكات، الحسابات الجاهزة والخدمات الرقمية. ادفع بأمان واستلم طلبك فوراً على صفحة
+            طلبك — بدون حسابات ولا انتظار.
+          </p>
+
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Link href="#categories" className="btn-primary h-12 px-6 text-base">
+              تسوّق الآن
+              <IconArrow className="size-4" />
+            </Link>
+            <Link href="#how-it-works" className="btn-ghost h-12 px-6 text-base">
+              كيف يعمل؟
+            </Link>
+          </div>
+
+          <dl className="mt-10 grid max-w-lg grid-cols-3 gap-3">
+            {[
+              { icon: IconBolt, k: "تسليم", v: "فوري" },
+              { icon: IconLock, k: "دفع", v: "آمن" },
+              { icon: IconClock, k: "دعم", v: "24/7" },
+            ].map(({ icon: Icon, k, v }) => (
+              <div key={k} className="rounded-xl border border-border bg-surface/70 p-3 backdrop-blur">
+                <Icon className="size-4 text-volt" />
+                <dt className="mt-2 text-xs text-muted">{k}</dt>
+                <dd className="text-sm font-bold">{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
+        <HeroVisual />
+      </div>
+    </section>
+  );
+}
+
+/** Decorative "delivered code" ticket beside the brand mark. Purely illustrative. */
+function HeroVisual() {
+  return (
+    <div aria-hidden="true" className="relative mx-auto w-full max-w-md select-none lg:max-w-none">
+      <div className="absolute -inset-10 -z-10 rounded-full bg-volt/10 blur-3xl" />
+      <div className="relative mx-auto aspect-square w-56 sm:w-72 lg:w-80">
+        <Image
+          src="/brand/nitro-logo.webp"
+          alt=""
+          fill
+          priority
+          sizes="(min-width: 1024px) 320px, 288px"
+          className="object-contain mix-blend-screen"
+        />
+      </div>
+
+      <div className="relative -mt-10 rotate-[-3deg] sm:-mt-14 lg:ms-10">
+        <div className="card overflow-hidden shadow-[0_30px_80px_-30px_rgba(212,255,61,0.35)]">
+          <div className="flex items-center justify-between border-b border-dashed border-border px-5 py-3">
+            <span dir="ltr" className="font-display text-xs font-bold tracking-[0.2em] text-muted uppercase">
+              Gift Card · 50 USD
+            </span>
+            <span className="badge bg-success/15 text-success">تم التسليم</span>
+          </div>
+          <div className="flex items-center justify-between gap-4 px-5 py-4">
+            <span dir="ltr" className="font-mono text-lg font-bold tracking-widest text-volt sm:text-xl">
+              NTRO-7K2F-Q9XA
+            </span>
+            <span className="rounded-md border border-border px-2 py-1 text-xs text-muted">نسخ</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TrustStrip() {
+  const items = [
+    { icon: IconBolt, title: "تسليم فوري", text: "الأكواد تظهر مباشرة بعد تأكيد الدفع" },
+    { icon: IconLock, title: "دفع آمن ومشفّر", text: "لا نخزّن بيانات بطاقتك إطلاقاً" },
+    { icon: IconShieldCheck, title: "ضمان على الحسابات", text: "استبدال أو استرجاع خلال مدة الضمان" },
+    { icon: IconHeadset, title: "دعم 24/7", text: "فريقنا جاهز لمساعدتك في أي وقت" },
+  ];
+  return (
+    <section aria-label="لماذا Nitro Store" className="border-b border-border bg-surface/50">
+      <ul className="mx-auto grid max-w-7xl grid-cols-2 lg:grid-cols-4">
+        {items.map(({ icon: Icon, title, text }, i) => (
+          <li
+            key={title}
+            className={`flex items-start gap-3 px-4 py-5 sm:px-6 ${i % 2 === 1 ? "border-s border-border" : ""} ${
+              i >= 2 ? "border-t border-border lg:border-t-0" : ""
+            } ${i === 2 ? "lg:border-s" : ""}`}
+          >
+            <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-volt/10 text-volt ring-1 ring-volt/20">
+              <Icon className="size-4.5" />
+            </span>
+            <span>
+              <span className="block text-sm font-bold">{title}</span>
+              <span className="mt-0.5 block text-xs leading-5 text-muted">{text}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function HowItWorks() {
+  const steps = [
+    { n: "01", title: "اختر", text: "اختر المنتج والفئة التي تناسبك، وأضفها إلى السلة." },
+    { n: "02", title: "ادفع", text: "أدخل بريدك الإلكتروني وادفع عبر بوابة دفع آمنة ومشفّرة." },
+    { n: "03", title: "استلم فوراً", text: "يظهر الكود على صفحة طلبك فور تأكيد الدفع، ونرسل لك رابطها بالبريد." },
+  ];
+  return (
+    <section id="how-it-works" className="mx-auto max-w-7xl scroll-mt-32 px-4 pt-16 sm:px-6 sm:pt-24">
+      <SectionHeading index="03" eyebrow="How it works" title="ثلاث خطوات فقط" />
+      <ol className="mt-8 grid gap-3 md:grid-cols-3">
+        {steps.map((s, i) => (
+          <li key={s.n} className="card relative overflow-hidden p-6">
+            <span
+              aria-hidden="true"
+              dir="ltr"
+              className="absolute -top-4 end-3 font-display text-[6.5rem] leading-none font-bold tracking-tighter text-volt/[0.07]"
+            >
+              {s.n}
+            </span>
+            <span
+              dir="ltr"
+              className={`relative grid size-10 place-items-center rounded-full font-display text-sm font-bold ${
+                i === 2 ? "bg-volt text-bg shadow-[0_0_30px_rgba(212,255,61,0.5)]" : "border border-volt/40 text-volt"
+              }`}
+            >
+              {s.n}
+            </span>
+            <h3 className="relative mt-5 text-xl font-bold">{s.title}</h3>
+            <p className="relative mt-2 text-sm leading-7 text-muted">{s.text}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
