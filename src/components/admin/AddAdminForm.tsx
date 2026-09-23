@@ -11,7 +11,7 @@ export function AddAdminForm({ action }: { action: FormAction }) {
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
       {/* Remount (clear) after each successful add */}
-      <Fields key={state?.ok ? state.ts : "fields"} state={state} />
+      <Fields key={state?.ts ?? "fields"} state={state} />
       <FormMessage state={state} />
       <button type="submit" className="btn-primary" disabled={pending}>
         <PlusIcon className="size-4" />

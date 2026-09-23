@@ -146,7 +146,7 @@ function ProductFields({
               id="p-slug"
               name="slug"
               dir="ltr"
-              className="input text-start font-mono"
+              className="input text-start"
               maxLength={120}
               value={slug}
               placeholder="يُولَّد من الاسم تلقائياً"

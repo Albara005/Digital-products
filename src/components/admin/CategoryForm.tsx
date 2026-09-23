@@ -72,7 +72,7 @@ function CategoryFields({
           id="cat-slug"
           name="slug"
           dir="ltr"
-          className="input text-start font-mono"
+          className="input text-start"
           value={slug}
           maxLength={80}
           placeholder="يُولَّد من الاسم تلقائياً"

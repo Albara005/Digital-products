@@ -175,7 +175,7 @@ export default async function ProductsPage({ searchParams }: PageProps<"/admin/p
                           <span className="truncate">{p.name}</span>
                           {p.featured && <StarIcon className="size-3.5 shrink-0 fill-volt text-volt" aria-label="مميّز" />}
                         </Link>
-                        <span className="block truncate font-mono text-xs text-muted" dir="ltr">
+                        <span className="block truncate text-xs text-muted" dir="ltr">
                           {p.slug}
                         </span>
                       </div>

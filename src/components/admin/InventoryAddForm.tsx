@@ -44,7 +44,7 @@ export function InventoryAddForm({
         </select>
         <FieldError state={state} name="variantId" />
       </div>
-      <StockTextarea key={state?.ok ? state.ts : "stock"} kind={kind} state={state} />
+      <StockTextarea key={state?.ts ?? "stock"} kind={kind} state={state} />
       <FormMessage state={state} />
       <button type="submit" className="btn-primary" disabled={pending}>
         <PlusIcon className="size-4" />

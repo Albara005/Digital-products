@@ -47,7 +47,7 @@ export default async function CategoriesPage() {
                       <span className="font-medium">{c.name}</span>
                       {c.description && <span className="block max-w-xs truncate text-xs text-muted">{c.description}</span>}
                     </td>
-                    <td className="font-mono text-xs text-muted" dir="ltr">
+                    <td className="text-xs text-muted" dir="ltr">
                       <span className="block text-end">{c.slug}</span>
                     </td>
                     <td>
