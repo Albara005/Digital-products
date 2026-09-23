@@ -18,7 +18,6 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
   title: { default: "Nitro Store", template: "%s | Nitro Store" },
   description: "بطاقات ألعاب، اشتراكات، حسابات وخدمات رقمية — تسليم فوري.",
-  icons: { icon: "/brand/nitro-logo.webp" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
