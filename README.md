@@ -8,6 +8,7 @@
 ## المزايا
 
 - **تسليم تلقائي فوري**: بعد تأكيد الدفع يُسحب الكود من المخزون ويظهر في صفحة الطلب الخاصة بالعميل، ويصله بريد برابط الطلب.
+- **لا يدفع العميل إلا لمخزون موجود**: عند إتمام الطلب تُحجز الأكواد المطلوبة (`RESERVED`) داخل نفس المعاملة التي تنشئ الطلب، وإن لم تكفِ الكمية يُرفض الطلب كاملاً قبل الانتقال إلى الدفع.
 - **لا يُباع الكود مرتين أبداً**: كل وحدة مخزون تُحجز بقفل على مستوى قاعدة البيانات (`FOR UPDATE SKIP LOCKED`) داخل معاملة واحدة، والتسليم آمن عند تكرار إشعارات Stripe أو ضغط زر "إعادة المحاولة" في لوحة التحكم في نفس الوقت.
 - **تشفير المخزون**: الأكواد وبيانات الحسابات مشفّرة في قاعدة البيانات بـ AES-256-GCM.
 - **الأسعار من الخادم فقط**: الأسعار والمخزون تُقرأ من قاعدة البيانات عند الدفع، ولا يُوثق بأي سعر قادم من المتصفح.
@@ -73,9 +74,11 @@ Next.js 16 (App Router) - React 19 - TypeScript - Prisma 6 - PostgreSQL - Stripe
    وضع قيمة `whsec_...` التي يطبعها الأمر في `STRIPE_WEBHOOK_SECRET` ثم أعد تشغيل `npm run dev`.
    بطاقة الاختبار: `4242 4242 4242 4242` بأي تاريخ مستقبلي وأي CVC.
 
-آلية العمل: `POST /api/checkout` ينشئ الطلب بحالة "بانتظار الدفع" وجلسة Stripe Checkout صالحة 30 دقيقة، ثم يعيد رابط الدفع.
+آلية العمل: `POST /api/checkout` ينشئ الطلب بحالة "بانتظار الدفع" ويحجز له المخزون في معاملة واحدة، ثم ينشئ جلسة Stripe Checkout صالحة 30 دقيقة ويعيد رابط الدفع (إن فشل إنشاء الجلسة يُلغى الطلب ويُعاد المخزون فوراً).
 عند نجاح الدفع يستقبل `/api/stripe/webhook` الإشعار (بعد التحقق من التوقيع)، فيحوّل الطلب إلى "مدفوع" ويسلّم المخزون ويرسل البريد.
-انتهاء صلاحية الجلسة أو فشل الدفع يحوّل الطلب إلى "فشل". جميع المعالجات قابلة للتكرار بأمان، وعند أي خطأ مؤقت يعيد الـ webhook رمز 500 ليعيد Stripe المحاولة.
+عند الدفع تتحول الأكواد المحجوزة نفسها إلى "مباعة". انتهاء صلاحية الجلسة أو فشل الدفع يحوّل الطلب إلى "فشل" ويعيد المحجوز إلى المخزون المتاح.
+وكإجراء احتياطي إن ضاع إشعار من Stripe: كل طلب دفع جديد يحرر أولاً حجوزات الطلبات المعلّقة التي مضى عليها أكثر من 35 دقيقة ويحوّلها إلى "فشل"، وإن وصل إشعار دفع متأخر لطلب كهذا فإنه يُعتبر مدفوعاً ويُسلَّم من المخزون المتاح (أو يبقى بانتظار التسليم اليدوي إن نفد).
+جميع المعالجات قابلة للتكرار بأمان، وعند أي خطأ مؤقت يعيد الـ webhook رمز 500 ليعيد Stripe المحاولة.
 
 ## البريد الإلكتروني (Resend)
 
@@ -128,9 +131,9 @@ Next.js 16 (App Router) - React 19 - TypeScript - Prisma 6 - PostgreSQL - Stripe
 | بانتظار الدفع `PENDING` | أُنشئ الطلب ولم يكتمل الدفع |
 | مدفوع - بانتظار التسليم `PAID` | تم الدفع، وفيه خدمة أو منتج نفد مخزونه، ويحتاج تسليماً يدوياً أو "إعادة محاولة" بعد إضافة مخزون |
 | تم التسليم `FULFILLED` | سُلّمت كل المنتجات وأُرسل البريد للعميل |
-| فشل `FAILED` | انتهت جلسة الدفع أو فشل الدفع |
+| فشل `FAILED` | انتهت جلسة الدفع أو فشل الدفع، ويُعاد المخزون المحجوز له إلى المتاح |
 
-ملاحظة: التحقق من المخزون عند إنشاء الطلب لا يحجز الكود. إذا دفع عميلان في نفس اللحظة ثمن آخر كود، يستلمه أحدهما تلقائياً ويبقى طلب الآخر "مدفوعاً - بانتظار التسليم" حتى تضيف مخزوناً وتعيد المحاولة أو تسترد المبلغ. لا يمكن أبداً أن يُسلَّم نفس الكود لعميلين.
+حالات المخزون: متاح `AVAILABLE` ← محجوز لطلب بانتظار الدفع `RESERVED` ← مباع `SOLD`. إذا حاول عميلان شراء آخر كود في نفس اللحظة، يحجزه أحدهما ويُرفض طلب الآخر برسالة "نفد من المخزون" قبل أن يدفع. لا يمكن أبداً أن يُسلَّم نفس الكود لعميلين.
 
 ## فحص سريع (للتطوير فقط)
 
@@ -141,7 +144,7 @@ npx next dev -p 3100
 node --conditions=react-server --import tsx scripts/verify-payments.mts
 ```
 
-يختبر السكربت: إنشاء طلب وتسليمه، رفض الكميات غير المتوفرة، 10 طلبات متزامنة على 5 أكواد فقط (لا يُباع أي كود مرتين)، تكرار التسليم المتزامن، معالجة الـ webhook الموقّع، وحد الطلبات. ويحذف بيانات الاختبار بعد الانتهاء.
+يختبر السكربت: إنشاء طلب وتسليمه، رفض الكميات غير المتوفرة، 10 طلبات متزامنة على 5 أكواد فقط (5 تنجح و5 تُرفض، ولا يُباع أي كود مرتين)، تكرار التسليم المتزامن، معالجة الـ webhook الموقّع، تحرير الحجز عند انتهاء الجلسة أو فشل الدفع أو مرور 35 دقيقة أو فشل إنشاء جلسة Stripe، وحد الطلبات. ويحذف بيانات الاختبار بعد الانتهاء.
 
 </div>
 
@@ -167,10 +170,11 @@ With `STRIPE_SECRET_KEY` empty and `NODE_ENV` not `production`, checkout runs in
 
 **Payments & delivery**
 
-- `POST /api/checkout` `{ email, items: [{ variantId, quantity }] }` → `{ url }` or `{ error }`. Prices, stock and active flags come from the database; duplicate lines are merged; 1–20 lines, quantity 1–10; 10 requests/min per IP.
+- `POST /api/checkout` `{ email, items: [{ variantId, quantity }] }` → `{ url }` or `{ error }`. Prices, stock and active flags come from the database; duplicate lines are merged; 1–20 lines, quantity 1–10; 10 requests/min per IP. The order, its items and a **reservation** of every stock unit (`AVAILABLE → RESERVED`, linked to the order item) are written in one transaction; if any line can't be fully reserved the whole checkout is rolled back with a 409, so customers can only pay for stock that exists. If the Stripe session can't be created, the order is failed and its reservation released.
+- Reservations are released (order → `FAILED`) on `checkout.session.expired` / `checkout.session.async_payment_failed`, and every checkout request first sweeps PENDING orders older than 35 minutes (`releaseStaleReservations()`) in case a webhook was lost. A paid webhook that arrives late for such an order still moves it `FAILED → PAID` and delivers from AVAILABLE stock.
 - `POST /api/stripe/webhook` verifies the signature and handles `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`. Local testing: `stripe listen --forward-to localhost:3000/api/stripe/webhook`.
 - `GET /api/health` → `{ ok: true }` after `SELECT 1`.
-- `src/lib/fulfillment.ts`: `markOrderPaid`, `fulfillOrder`, `refreshOrderStatus`. Stock units are claimed with `SELECT ... FOR UPDATE SKIP LOCKED` inside one transaction per order item, and the order item row is locked first, so webhook retries and the admin "retry" button can run concurrently without double delivery. Shortfalls leave the order in `PAID` for manual delivery. Only the caller that moves an order to `FULFILLED` sends the delivery email, which contains the private order link, never the codes.
+- `src/lib/fulfillment.ts`: `markOrderPaid`, `fulfillOrder`, `refreshOrderStatus`, `reserveStock`, `failPendingOrder`, `releaseOrderReservations`, `releaseStaleReservations`. `fulfillOrder` promotes the order's reserved units to `SOLD` and only falls back to AVAILABLE stock (claimed with `SELECT ... FOR UPDATE SKIP LOCKED`) when the reservation was released. It runs one transaction per order item and locks the order item row first, so webhook retries and the admin "retry" button can run concurrently without double delivery. Shortfalls leave the order in `PAID` for manual delivery. Only the caller that moves an order to `FULFILLED` sends the delivery email, which contains the private order link, never the codes.
 
 **Deploying on Railway**
 

@@ -4,7 +4,14 @@ import type { ProductType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { randomToken } from "@/lib/crypto";
 import { getStripe, isStripeEnabled } from "@/lib/stripe";
-import { fulfillOrder, markOrderPaid } from "@/lib/fulfillment";
+import {
+  OutOfStockError,
+  failPendingOrder,
+  fulfillOrder,
+  markOrderPaid,
+  releaseStaleReservations,
+  reserveStock,
+} from "@/lib/fulfillment";
 import { orderPagePath, siteUrl } from "@/lib/email";
 
 export const runtime = "nodejs";
@@ -14,8 +21,10 @@ const MAX_LINES = 20;
 const MAX_QUANTITY = 10;
 const RATE_LIMIT = 10; // requests
 const RATE_WINDOW_MS = 60_000; // per minute, per IP
-// Stripe requires expires_at to be at least 30 minutes away; one extra minute absorbs clock skew
+// Stripe requires expires_at to be at least 30 minutes away; one extra minute absorbs clock skew.
+// Reservations of PENDING orders are released after RESERVATION_TTL_MINUTES (35).
 const SESSION_TTL_SECONDS = 31 * 60;
+const RESERVE_ATTEMPTS = 5;
 
 const bodySchema = z.object({
   email: z
@@ -81,6 +90,76 @@ type Line = {
   imageUrl: string | null;
 };
 
+function outOfStockMessage(productName: string, variantLabel: string, available: number) {
+  return available <= 0
+    ? `المنتج "${productName} - ${variantLabel}" نفد من المخزون`
+    : `الكمية المطلوبة من "${productName} - ${variantLabel}" غير متوفرة، المتوفر حالياً: ${available}`;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Creates the customer, the PENDING order and its items, and reserves every stock unit, all in
+ * one transaction: either the whole cart is reserved or nothing is written.
+ * Retries briefly when stock exists but is locked by concurrent checkouts.
+ */
+async function createReservedOrder(
+  email: string,
+  lines: Line[],
+  currency: string,
+): Promise<{ id: string; accessToken: string } | OutOfStockError> {
+  const totalCents = lines.reduce((sum, line) => sum + line.unitPriceCents * line.quantity, 0);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await prisma.$transaction(
+        async (tx) => {
+          const customer = await tx.customer.upsert({
+            where: { email },
+            create: { email },
+            update: {},
+            select: { id: true },
+          });
+          const order = await tx.order.create({
+            data: {
+              accessToken: randomToken(),
+              customerId: customer.id,
+              status: "PENDING",
+              totalCents,
+              currency,
+              items: {
+                create: lines.map((line) => ({
+                  variantId: line.variantId,
+                  productName: line.productName,
+                  variantLabel: line.variantLabel,
+                  productType: line.productType,
+                  quantity: line.quantity,
+                  unitPriceCents: line.unitPriceCents,
+                })),
+              },
+            },
+            select: {
+              id: true,
+              accessToken: true,
+              items: {
+                select: { id: true, variantId: true, quantity: true, productName: true, variantLabel: true, productType: true },
+              },
+            },
+          });
+          for (const item of order.items) {
+            if (item.productType !== "SERVICE") await reserveStock(tx, item);
+          }
+          return { id: order.id, accessToken: order.accessToken };
+        },
+        { maxWait: 10_000, timeout: 20_000 },
+      );
+    } catch (err) {
+      if (!(err instanceof OutOfStockError)) throw err;
+      if (!err.transient || attempt >= RESERVE_ATTEMPTS) return err;
+      await sleep(50 * attempt + Math.floor(Math.random() * 50));
+    }
+  }
+}
+
 export async function POST(req: Request) {
   const retryAfter = rateLimit(clientIp(req));
   if (retryAfter > 0) {
@@ -90,6 +169,13 @@ export async function POST(req: Request) {
   const stripeEnabled = isStripeEnabled();
   if (!stripeEnabled && process.env.NODE_ENV === "production") {
     return jsonError("الدفع غير متاح حالياً، يرجى المحاولة لاحقاً", 503);
+  }
+
+  // Free stock held by abandoned checkouts whose webhook never arrived (cheap, indexed)
+  try {
+    await releaseStaleReservations();
+  } catch (err) {
+    console.error("[checkout] Releasing stale reservations failed", err);
   }
 
   let raw: unknown;
@@ -147,7 +233,8 @@ export async function POST(req: Request) {
     }
     const currency = [...currencies][0];
 
-    // Stock check for delivered-from-stock products (SERVICE is delivered manually)
+    // Fast pre-check for delivered-from-stock products (SERVICE is delivered manually).
+    // Not authoritative: the reservation below is what guarantees the stock.
     const stockLines = lines.filter((line) => line.productType !== "SERVICE");
     if (stockLines.length > 0) {
       const counts = await prisma.inventoryItem.groupBy({
@@ -159,45 +246,21 @@ export async function POST(req: Request) {
       for (const line of stockLines) {
         const inStock = available.get(line.variantId) ?? 0;
         if (line.quantity > inStock) {
-          return jsonError(
-            inStock === 0
-              ? `المنتج "${line.productName} - ${line.variantLabel}" نفد من المخزون`
-              : `الكمية المطلوبة من "${line.productName} - ${line.variantLabel}" غير متوفرة، المتوفر حالياً: ${inStock}`,
-            409,
-          );
+          return jsonError(outOfStockMessage(line.productName, line.variantLabel, inStock), 409);
         }
       }
     }
 
-    const totalCents = lines.reduce((sum, line) => sum + line.unitPriceCents * line.quantity, 0);
-
-    const customer = await prisma.customer.upsert({
-      where: { email },
-      create: { email },
-      update: {},
-      select: { id: true },
-    });
-
-    const order = await prisma.order.create({
-      data: {
-        accessToken: randomToken(),
-        customerId: customer.id,
-        status: "PENDING",
-        totalCents,
-        currency,
-        items: {
-          create: lines.map((line) => ({
-            variantId: line.variantId,
-            productName: line.productName,
-            variantLabel: line.variantLabel,
-            productType: line.productType,
-            quantity: line.quantity,
-            unitPriceCents: line.unitPriceCents,
-          })),
-        },
-      },
-      select: { id: true, accessToken: true },
-    });
+    const reservation = await createReservedOrder(email, lines, currency);
+    if (reservation instanceof OutOfStockError) {
+      return jsonError(
+        reservation.transient
+          ? `الطلب مرتفع حالياً على "${reservation.productName} - ${reservation.variantLabel}"، يرجى المحاولة مرة أخرى بعد لحظات`
+          : outOfStockMessage(reservation.productName, reservation.variantLabel, reservation.available),
+        409,
+      );
+    }
+    const order = reservation;
 
     if (!stripeEnabled) {
       // Dev mode (never in production): no real charge, deliver immediately
@@ -240,12 +303,12 @@ export async function POST(req: Request) {
       );
     } catch (err) {
       console.error(`[checkout] Stripe session creation failed for order ${order.id}`, err);
-      await prisma.order.updateMany({ where: { id: order.id, status: "PENDING" }, data: { status: "FAILED" } });
+      await failPendingOrder(order.id); // releases the reserved stock
       return jsonError("تعذر بدء عملية الدفع، يرجى المحاولة مرة أخرى", 502);
     }
 
     if (!session.url) {
-      await prisma.order.updateMany({ where: { id: order.id, status: "PENDING" }, data: { status: "FAILED" } });
+      await failPendingOrder(order.id);
       return jsonError("تعذر بدء عملية الدفع، يرجى المحاولة مرة أخرى", 502);
     }
 

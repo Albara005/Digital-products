@@ -159,7 +159,7 @@ export function CartView() {
         if (target.protocol === "https:" || target.protocol === "http:") {
           setRedirecting(true);
           cart.clear();
-          window.location.href = target.href;
+          window.location.assign(target.href);
           return;
         }
       }

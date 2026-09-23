@@ -1,7 +1,7 @@
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { getStripe, isStripeEnabled } from "@/lib/stripe";
-import { fulfillOrder, markOrderPaid } from "@/lib/fulfillment";
+import { failPendingOrder, fulfillOrder, markOrderPaid } from "@/lib/fulfillment";
 
 // Raw body + Node crypto for signature verification; never cached
 export const runtime = "nodejs";
@@ -62,7 +62,8 @@ async function handlePaid(session: Stripe.Checkout.Session) {
 async function handleFailed(session: Stripe.Checkout.Session) {
   const order = await findOrderForSession(session);
   if (!order) return;
-  await prisma.order.updateMany({ where: { id: order.id, status: "PENDING" }, data: { status: "FAILED" } });
+  // PENDING -> FAILED and return the reserved stock to AVAILABLE, atomically
+  await failPendingOrder(order.id);
 }
 
 export async function POST(req: Request) {
