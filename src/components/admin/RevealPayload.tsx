@@ -19,7 +19,7 @@ export function RevealPayload({ id, reveal }: { id: string; reveal: RevealAction
   if (value !== null) {
     return (
       <div className="flex min-w-0 flex-1 items-start gap-2">
-        <pre dir="ltr" className="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-md bg-surface-2 px-2.5 py-1.5 text-start font-mono text-xs text-text">
+        <pre dir="auto" className="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-md bg-surface-2 px-2.5 py-1.5 text-start font-mono text-xs text-text">
           {value}
         </pre>
         <CopyButton text={value} />

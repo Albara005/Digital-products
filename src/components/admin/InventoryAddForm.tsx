@@ -26,10 +26,10 @@ export function InventoryAddForm({
   variants: { id: string; label: string }[];
   defaultVariantId: string;
 }) {
-  const [state, onSubmit, pending] = useFormAction(action);
+  const [state, form, pending] = useFormAction(action);
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+    <form {...form} className="flex flex-col gap-4" noValidate>
       <input type="hidden" name="productId" value={productId} />
       <div>
         <label htmlFor="inv-variant" className="label">

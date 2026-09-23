@@ -10,10 +10,10 @@ import { useFormAction } from "./useFormAction";
 type CategoryDefaults = { id: string; name: string; slug: string; description: string | null; sortOrder: number };
 
 export function CategoryForm({ action, category }: { action: FormAction; category?: CategoryDefaults }) {
-  const [state, onSubmit, pending] = useFormAction(action);
+  const [state, form, pending] = useFormAction(action);
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+    <form {...form} className="flex flex-col gap-4" noValidate>
       {category && <input type="hidden" name="id" value={category.id} />}
       {/* Remount (clear) the fields after each successful create */}
       <CategoryFields key={category ? category.id : (state?.ts ?? "new")} category={category} state={state} />

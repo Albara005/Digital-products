@@ -17,13 +17,21 @@ const BAR = "bg-[#7f9c1d]";
 const BAR_TODAY = "bg-volt";
 const PLOT_H = 176;
 
-const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
-const usdCompact = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
+// Deterministic formatting (no Intl in this Client Component): server and browser ICU builds
+// disagree on compact notation, which would cause hydration mismatches.
+function usd(cents: number) {
+  const [whole, frac] = (Math.abs(cents) / 100).toFixed(2).split(".");
+  return `${cents < 0 ? "-" : ""}$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${frac}`;
+}
+
+function usdCompact(cents: number) {
+  const d = cents / 100;
+  const abs = Math.abs(d);
+  const short = (n: number) => String(Number(n.toFixed(Math.abs(n) < 10 ? 2 : 1)));
+  if (abs >= 1_000_000) return `$${short(d / 1_000_000)}M`;
+  if (abs >= 1_000) return `$${short(d / 1_000)}K`;
+  return `$${short(d)}`;
+}
 
 function niceScale(maxCents: number) {
   if (maxCents <= 0) return { top: 10000, step: 2500 };
@@ -54,7 +62,7 @@ export function RevenueChart({ points }: { points: RevenuePoint[] }) {
               className="absolute end-0 translate-y-1/2 font-display text-[11px] tabular-nums text-muted"
               style={{ bottom: `${(t / top) * 100}%` }}
             >
-              {usdCompact.format(t / 100)}
+              {usdCompact(t)}
             </span>
           ))}
         </div>
@@ -86,7 +94,7 @@ export function RevenueChart({ points }: { points: RevenuePoint[] }) {
                   key={p.key}
                   type="button"
                   className="group relative flex flex-1 items-end justify-center outline-none"
-                  aria-label={`${p.fullLabel}: ${usd.format(p.cents / 100)}، ${p.orders} طلب`}
+                  aria-label={`${p.fullLabel}: ${usd(p.cents)}، ${p.orders} طلب`}
                   onPointerEnter={() => setActive(i)}
                   onPointerLeave={() => setActive((cur) => (cur === i ? null : cur))}
                   onFocus={() => setActive(i)}
@@ -105,7 +113,7 @@ export function RevenueChart({ points }: { points: RevenuePoint[] }) {
                       style={{ bottom: `calc(${pct}% + 4px)` }}
                       aria-hidden="true"
                     >
-                      {usdCompact.format(p.cents / 100)}
+                      {usdCompact(p.cents)}
                     </span>
                   )}
                   {isActive && (
@@ -114,7 +122,7 @@ export function RevenueChart({ points }: { points: RevenuePoint[] }) {
                       className={`pointer-events-none absolute z-10 min-w-32 rounded-lg border border-border bg-surface-2 px-3 py-2 text-start shadow-xl ${align}`}
                       style={{ bottom: `calc(${pct}% + 10px)` }}
                     >
-                      <span className="block font-display text-sm font-bold text-text">{usd.format(p.cents / 100)}</span>
+                      <span className="block font-display text-sm font-bold text-text">{usd(p.cents)}</span>
                       <span className="block text-xs text-muted">{p.fullLabel}</span>
                       <span className="block text-xs text-muted">{p.orders} طلب مدفوع</span>
                     </span>
@@ -153,7 +161,7 @@ export function RevenueChart({ points }: { points: RevenuePoint[] }) {
               <tr key={p.key} className="border-t border-border">
                 <td className="py-1.5">{p.fullLabel}</td>
                 <td className="py-1.5 tabular-nums">{p.orders}</td>
-                <td className="py-1.5 text-end font-display tabular-nums">{usd.format(p.cents / 100)}</td>
+                <td className="py-1.5 text-end font-display tabular-nums">{usd(p.cents)}</td>
               </tr>
             ))}
           </tbody>

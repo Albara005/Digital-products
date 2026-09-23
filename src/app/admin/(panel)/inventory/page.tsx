@@ -118,7 +118,7 @@ export default async function InventoryOverviewPage({ searchParams }: PageProps<
                       {r.product.name}
                     </Link>
                     <span className="block text-xs text-muted">
-                      {r.label} · <span className="font-display">{formatPrice(r.priceCents, r.currency)}</span>
+                      <bdi>{r.label}</bdi> · <span className="font-display">{formatPrice(r.priceCents, r.currency)}</span>
                       {!r.product.active && " · معطّل"}
                     </span>
                   </td>

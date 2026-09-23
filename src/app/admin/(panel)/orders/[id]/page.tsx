@@ -24,7 +24,7 @@ function reveal(payload: string): { ok: true; value: string } | { ok: false } {
   }
 }
 
-function Secret({ payload, label }: { payload: string; label?: string }) {
+function Secret({ payload, label, note = false }: { payload: string; label?: string; note?: boolean }) {
   const r = reveal(payload);
   if (!r.ok) {
     return <p className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">تعذّر فك التشفير — تحقق من INVENTORY_ENCRYPTION_KEY.</p>;
@@ -32,8 +32,10 @@ function Secret({ payload, label }: { payload: string; label?: string }) {
   return (
     <div className="flex items-start gap-2">
       <pre
-        dir="ltr"
-        className="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-md border border-border bg-bg px-3 py-2 text-start font-mono text-xs leading-relaxed text-text"
+        dir="auto"
+        className={`min-w-0 flex-1 whitespace-pre-wrap break-all rounded-md border border-border bg-bg px-3 py-2 text-start leading-relaxed text-text ${
+          note ? "font-sans text-sm" : "font-mono text-xs"
+        }`}
       >
         {r.value}
       </pre>
@@ -143,7 +145,7 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
                       <ProductTypeBadge type={item.productType} />
                     </div>
                     <p className="mt-0.5 text-sm text-muted">
-                      {item.variantLabel} ·{" "}
+                      <bdi>{item.variantLabel}</bdi> ·{" "}
                       <span className="font-display" dir="ltr">
                         {item.quantity} × {formatPrice(item.unitPriceCents, order.currency)}
                       </span>
@@ -182,7 +184,7 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
                   {item.deliveryNote && (
                     <div className="flex flex-col gap-2">
                       <p className="text-xs font-medium text-muted">نص التسليم اليدوي</p>
-                      <Secret payload={item.deliveryNote} />
+                      <Secret payload={item.deliveryNote} note />
                     </div>
                   )}
 
@@ -243,7 +245,17 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
                   تسجيل كمسترجع
                 </ActionButton>
               )}
-              {!canRetry && !canRefund && <p className="text-sm text-muted">لا توجد إجراءات متاحة لهذه الحالة.</p>}
+              {!canRetry && !canRefund && (
+                <p className="text-sm text-muted">
+                  {order.status === "REFUNDED"
+                    ? "الطلب مسجّل كمسترجع. لا توجد إجراءات أخرى."
+                    : order.status === "PENDING"
+                      ? "بانتظار إتمام الدفع — لا يمكن التسليم قبل تأكيده."
+                      : order.status === "FAILED"
+                        ? "فشل الدفع أو انتهت مهلته، ولم يُحتسب الطلب."
+                        : "لا توجد إجراءات متاحة لهذه الحالة."}
+                </p>
+              )}
             </div>
           </section>
 

@@ -5,10 +5,10 @@ import { FieldError, FormMessage } from "./ui";
 import { useFormAction } from "./useFormAction";
 
 export function LoginForm({ action }: { action: FormAction }) {
-  const [state, onSubmit, pending] = useFormAction(action);
+  const [state, form, pending] = useFormAction(action);
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+    <form {...form} className="flex flex-col gap-4" noValidate>
       <div>
         <label htmlFor="email" className="label">
           البريد الإلكتروني

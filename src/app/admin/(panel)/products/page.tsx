@@ -191,7 +191,7 @@ export default async function ProductsPage({ searchParams }: PageProps<"/admin/p
                         const n = v._count.inventoryItems;
                         return (
                           <li key={v.id} className="flex items-center gap-2 whitespace-nowrap text-xs">
-                            <span className="text-text">{v.label}</span>
+                            <bdi className="text-text">{v.label}</bdi>
                             <span className="font-display text-muted">{formatPrice(v.priceCents, v.currency)}</span>
                             {p.type !== "SERVICE" && (
                               <span

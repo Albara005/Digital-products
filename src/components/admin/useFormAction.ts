@@ -4,10 +4,15 @@ import { startTransition, useActionState, useCallback, type FormEvent } from "re
 import type { FormAction, FormState } from "@/app/admin/_lib/form-state";
 
 /**
- * useActionState wired through onSubmit instead of <form action>, so React does not
- * auto-reset the fields after the action: on a validation error the admin keeps what they typed.
- * Forms that should clear after success remount their fields with key={state?.ts ?? "…"};
- * error states carry the previous success stamp forward so an error never triggers that remount.
+ * useActionState for admin forms. Spread `form` onto <form {...form}>.
+ *
+ * - After hydration, `onSubmit` dispatches manually, so React does not auto-reset the fields:
+ *   on a validation error the admin keeps what they typed.
+ * - `action` is still set so that before hydration React renders an inert placeholder and
+ *   replays the submission once hydrated (never a native GET that would put fields — e.g. a
+ *   password — in the URL).
+ * - Forms that should clear after success remount their fields with key={state?.ts ?? "…"};
+ *   error states carry the previous success stamp forward so an error never triggers that remount.
  */
 export function useFormAction(action: FormAction) {
   const run = useCallback(
@@ -26,5 +31,5 @@ export function useFormAction(action: FormAction) {
     },
     [dispatch],
   );
-  return [state, onSubmit, pending] as const;
+  return [state, { action: dispatch, onSubmit }, pending] as const;
 }

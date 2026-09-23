@@ -52,10 +52,10 @@ export function ProductForm({
   categories: { id: string; name: string }[];
   product?: ProductFormData;
 }) {
-  const [state, onSubmit, pending] = useFormAction(action);
+  const [state, form, pending] = useFormAction(action);
 
   return (
-    <form onSubmit={onSubmit} noValidate>
+    <form {...form} noValidate>
       {product && <input type="hidden" name="id" value={product.id} />}
       <ProductFields key={product?.version ?? "new"} product={product} categories={categories} state={state} />
       <div className="sticky bottom-0 z-10 -mx-4 mt-6 flex flex-col gap-3 border-t border-border bg-bg/90 px-4 py-4 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">

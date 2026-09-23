@@ -153,7 +153,10 @@ export default async function OrdersPage({ searchParams }: PageProps<"/admin/ord
                   <td className="max-w-64">
                     {o.items.map((it, i) => (
                       <span key={i} className="block truncate text-xs">
-                        {it.productName} <span className="text-muted">· {it.variantLabel}</span>
+                        <bdi>{it.productName}</bdi>{" "}
+                        <span className="text-muted">
+                          · <bdi>{it.variantLabel}</bdi>
+                        </span>
                         {it.quantity > 1 && <span className="font-display text-muted"> ×{it.quantity}</span>}
                       </span>
                     ))}

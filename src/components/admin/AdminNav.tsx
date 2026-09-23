@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, type ComponentType, type SVGProps } from "react";
+import { useEffect, useState, type ComponentType, type SVGProps } from "react";
 import {
   BoxIcon,
   CloseIcon,
@@ -38,6 +38,15 @@ function isActive(pathname: string, item: NavItem) {
 export function AdminNav({ admin, awaitingDelivery, logoutAction }: Props) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
 
   const items: NavItem[] = [
     { href: "/admin", label: "الرئيسية", icon: HomeIcon, exact: true },
@@ -134,7 +143,11 @@ export function AdminNav({ admin, awaitingDelivery, logoutAction }: Props) {
         {account}
       </aside>
 
-      {/* Mobile top bar + drawer */}
+      {/* Mobile top bar + drawer. The dimmer lives outside the bar: backdrop-blur would make the
+          bar the containing block of a fixed child. */}
+      {open && (
+        <div className="fixed inset-0 z-30 bg-black/60 lg:hidden" onClick={() => setOpen(false)} aria-hidden="true" />
+      )}
       <div className="sticky top-0 z-40 border-b border-border bg-bg/90 backdrop-blur lg:hidden">
         <div className="flex items-center justify-between px-4 py-3">
           {brand}
@@ -150,18 +163,15 @@ export function AdminNav({ admin, awaitingDelivery, logoutAction }: Props) {
           </button>
         </div>
         {open && (
-          <>
-            <div className="fixed inset-0 top-[65px] z-30 bg-black/60" onClick={() => setOpen(false)} aria-hidden="true" />
-            <div
-              id="admin-mobile-nav"
-              className="absolute inset-x-0 top-full z-40 max-h-[calc(100dvh-65px)] overflow-y-auto border-b border-border bg-surface px-4 pb-4 pt-3 shadow-2xl"
-            >
-              <nav aria-label="القائمة الرئيسية" className="mb-4">
-                {links}
-              </nav>
-              {account}
-            </div>
-          </>
+          <div
+            id="admin-mobile-nav"
+            className="absolute inset-x-0 top-full max-h-[calc(100dvh-65px)] overflow-y-auto border-b border-border bg-surface px-4 pb-4 pt-3 shadow-2xl"
+          >
+            <nav aria-label="القائمة الرئيسية" className="mb-4">
+              {links}
+            </nav>
+            {account}
+          </div>
         )}
       </div>
     </>

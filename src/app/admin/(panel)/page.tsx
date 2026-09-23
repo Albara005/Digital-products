@@ -270,7 +270,7 @@ export default async function AdminDashboardPage() {
                 <li key={v.id} className="flex items-center justify-between gap-3 py-2.5">
                   <Link href={`/admin/products/${v.product.id}/inventory?variant=${v.id}`} className="min-w-0 hover:text-volt">
                     <span className="block truncate text-sm">{v.product.name}</span>
-                    <span className="block truncate text-xs text-muted">{v.label}</span>
+                    <bdi className="block truncate text-xs text-muted">{v.label}</bdi>
                   </Link>
                   <span
                     className={`badge shrink-0 gap-1 ${v.available === 0 ? "bg-danger/15 text-danger" : "bg-fuchsia/15 text-fuchsia"}`}

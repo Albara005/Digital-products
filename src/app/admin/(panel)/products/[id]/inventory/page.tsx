@@ -134,7 +134,7 @@ export default async function ProductInventoryPage({ params, searchParams }: Pag
               className={`card block p-4 transition-colors ${isSelected ? "border-volt/60 bg-volt/5" : "hover:border-muted/60"}`}
             >
               <div className="flex items-start justify-between gap-2">
-                <p className="truncate font-medium">{v.label}</p>
+                <bdi className="block truncate font-medium">{v.label}</bdi>
                 <span className="font-display text-xs text-muted">{formatPrice(v.priceCents, v.currency)}</span>
               </div>
               <p className="mt-3 flex items-baseline gap-1.5">
@@ -174,7 +174,7 @@ export default async function ProductInventoryPage({ params, searchParams }: Pag
         <section className="card overflow-hidden" aria-labelledby="available-title">
           <div className="flex flex-wrap items-center justify-between gap-2 px-5 pb-3 pt-5">
             <h2 id="available-title" className="font-semibold">
-              المتاح — {selected.label}
+              المتاح — <bdi>{selected.label}</bdi>
             </h2>
             <span className="text-xs text-muted">مخفي افتراضياً · اضغط «إظهار» لعرض عنصر واحد</span>
           </div>

@@ -16,11 +16,11 @@ export function ManualDeliveryForm({
   itemId: string;
   placeholder: string;
 }) {
-  const [state, onSubmit, pending] = useFormAction(action);
+  const [state, form, pending] = useFormAction(action);
   const fieldId = `deliver-${itemId}`;
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-2" noValidate>
+    <form {...form} className="flex flex-col gap-2" noValidate>
       <input type="hidden" name="orderId" value={orderId} />
       <input type="hidden" name="itemId" value={itemId} />
       <label htmlFor={fieldId} className="text-xs font-medium text-muted">
@@ -32,7 +32,7 @@ export function ManualDeliveryForm({
         rows={4}
         maxLength={20000}
         dir="auto"
-        className="input resize-y font-mono text-xs leading-relaxed"
+        className="input resize-y leading-relaxed"
         placeholder={placeholder}
       />
       <FieldError state={state} name="note" />
