@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+/* Nitro Store — "Acid Volt" identity. Dark-only by design. */
+:root {
+  --bg: #0a0a0a;
+  --surface: #141414;
+  --surface-2: #1c1c1c;
+  --border: #2a2a2a;
+  --volt: #d4ff3d;
+  --volt-dim: #a8cc2a;
+  --fuchsia: #ff3d9a;
+  --text: #fafafa;
+  --muted: #9ca3af;
+  --danger: #ff4d4d;
+  --success: #4ade80;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-volt: var(--volt);
+  --color-volt-dim: var(--volt-dim);
+  --color-fuchsia: var(--fuchsia);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --font-sans: var(--font-arabic), var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display), var(--font-arabic), ui-sans-serif, sans-serif;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+::selection {
+  background: var(--volt);
+  color: #0a0a0a;
+}
+
+/* Shared primitives used by storefront and admin */
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+}
+@utility btn-primary {
+  @apply btn bg-volt text-bg hover:bg-volt-dim;
+}
+@utility btn-ghost {
+  @apply btn border border-border text-text hover:border-volt hover:text-volt;
+}
+@utility btn-danger {
+  @apply btn border border-danger/40 text-danger hover:bg-danger/10;
+}
+@utility card {
+  @apply rounded-xl border border-border bg-surface;
+}
+@utility input {
+  @apply w-full rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-text placeholder:text-muted focus:border-volt focus:outline-none;
+}
+@utility label {
+  @apply mb-1.5 block text-sm font-medium text-muted;
+}
+@utility badge {
+  @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold;
+}
