@@ -26,7 +26,7 @@ export async function verifyCredentials(email: string, password: string) {
 }
 
 export async function createSession(admin: { id: string; email: string; name: string; role: AdminRole }) {
-  const token = await new SignJWT({ email: admin.email, name: admin.name, role: admin.role })
+  const token = await new SignJWT({ email: admin.email, name: admin.name, role: admin.role, kind: "admin" })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(admin.id)
     .setIssuedAt()
@@ -50,7 +50,7 @@ export async function getAdminSession(): Promise<AdminSession | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secret());
-    if (!payload.sub) return null;
+    if (payload.kind !== "admin" || !payload.sub) return null;
     return {
       adminId: payload.sub,
       email: String(payload.email),

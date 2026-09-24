@@ -34,12 +34,35 @@ enum AdminRole {
 }
 
 model Admin {
-  id           String    @id @default(cuid())
-  name         String
-  email        String    @unique
-  passwordHash String
-  role         AdminRole @default(STAFF)
-  createdAt    DateTime  @default(now())
+  id                String     @id @default(cuid())
+  name              String
+  email             String     @unique
+  passwordHash      String
+  role              AdminRole  @default(STAFF)
+  // Sessions issued before this instant are rejected (password change / forced sign-out)
+  passwordChangedAt DateTime?
+  // TOTP 2FA: secret is AES-GCM encrypted; enabled once the first code is verified
+  totpSecret        String?
+  totpEnabledAt     DateTime?
+  auditLogs         AuditLog[]
+  createdAt         DateTime   @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  admin      Admin?   @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  adminId    String?
+  // Kept even if the admin is later removed
+  adminEmail String
+  action     String
+  targetType String?
+  targetId   String?
+  details    Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([targetType, targetId])
 }
 
 model Category {
@@ -49,6 +72,7 @@ model Category {
   description String?
   sortOrder   Int       @default(0)
   products    Product[]
+  coupons     Coupon[]
   createdAt   DateTime  @default(now())
 }
 
@@ -66,6 +90,8 @@ model Product {
   category      Category         @relation(fields: [categoryId], references: [id])
   categoryId    String
   variants      ProductVariant[]
+  coupons       Coupon[]
+  reviews       Review[]
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
@@ -105,29 +131,184 @@ model InventoryItem {
 }
 
 model Customer {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  orders    Order[]
-  createdAt DateTime @default(now())
+  id                 String              @id @default(cuid())
+  email              String              @unique
+  name               String?
+  // Set on first successful email-code sign-in
+  emailVerifiedAt    DateTime?
+  walletBalanceCents Int                 @default(0)
+  orders             Order[]
+  walletTransactions WalletTransaction[]
+  walletTopups       WalletTopup[]
+  createdAt          DateTime            @default(now())
+}
+
+// One-time sign-in codes sent by email
+model CustomerOtp {
+  id         String    @id @default(cuid())
+  email      String
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([email, createdAt])
+}
+
+enum WalletTransactionType {
+  TOPUP
+  PURCHASE
+  REFUND
+  ADJUSTMENT
+}
+
+// Append-only ledger; Customer.walletBalanceCents is the running total
+model WalletTransaction {
+  id                String                @id @default(cuid())
+  customer          Customer              @relation(fields: [customerId], references: [id])
+  customerId        String
+  type              WalletTransactionType
+  // Positive = credit, negative = debit
+  amountCents       Int
+  balanceAfterCents Int
+  order             Order?                @relation(fields: [orderId], references: [id])
+  orderId           String?
+  topup             WalletTopup?          @relation(fields: [topupId], references: [id])
+  topupId           String?
+  note              String?
+  createdAt         DateTime              @default(now())
+
+  @@index([customerId, createdAt])
+  @@index([orderId])
+}
+
+enum TopupStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+model WalletTopup {
+  id           String              @id @default(cuid())
+  customer     Customer            @relation(fields: [customerId], references: [id])
+  customerId   String
+  amountCents  Int
+  currency     String              @default("USD")
+  status       TopupStatus         @default(PENDING)
+  provider     PaymentProvider
+  // Stripe Checkout session id / Tap charge id
+  providerRef  String?             @unique
+  paidAt       DateTime?
+  transactions WalletTransaction[]
+  createdAt    DateTime            @default(now())
+
+  @@index([customerId, createdAt])
+}
+
+enum PaymentProvider {
+  STRIPE
+  TAP
+  WALLET
+  DEV
+}
+
+enum CouponType {
+  PERCENT
+  FIXED
+}
+
+model Coupon {
+  id               String             @id @default(cuid())
+  // Stored uppercase
+  code             String             @unique
+  type             CouponType
+  // PERCENT: 1-100; FIXED: cents
+  value            Int
+  minSubtotalCents Int?
+  // Cap for PERCENT coupons, in cents
+  maxDiscountCents Int?
+  maxUses          Int?
+  // Counts active (PENDING/PAID/FULFILLED) orders; released when an order fails
+  usedCount        Int                @default(0)
+  perCustomerLimit Int?
+  startsAt         DateTime?
+  endsAt           DateTime?
+  active           Boolean            @default(true)
+  // Optional scope: only lines in this category / product count toward the discount
+  category         Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  categoryId       String?
+  product          Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productId        String?
+  redemptions      CouponRedemption[]
+  orders           Order[]
+  createdAt        DateTime           @default(now())
+}
+
+model CouponRedemption {
+  id            String   @id @default(cuid())
+  coupon        Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  couponId      String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId       String   @unique
+  customerEmail String
+  discountCents Int
+  createdAt     DateTime @default(now())
+
+  @@index([couponId, customerEmail])
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// One review per delivered order line (verified purchase)
+model Review {
+  id          String       @id @default(cuid())
+  product     Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId   String
+  orderItem   OrderItem    @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  orderItemId String       @unique
+  // Public display name, e.g. "أحمد" or masked email
+  authorName  String
+  rating      Int
+  comment     String?      @db.Text
+  status      ReviewStatus @default(PENDING)
+  createdAt   DateTime     @default(now())
+
+  @@index([productId, status, createdAt])
 }
 
 model Order {
-  id                  String      @id @default(cuid())
+  id                  String              @id @default(cuid())
   // Secret for the customer's order page (/order/[id]?token=...)
-  accessToken         String      @unique
-  customer            Customer    @relation(fields: [customerId], references: [id])
+  accessToken         String              @unique
+  customer            Customer            @relation(fields: [customerId], references: [id])
   customerId          String
-  status              OrderStatus @default(PENDING)
+  status              OrderStatus         @default(PENDING)
+  // subtotal - discount = totalCents (order value); totalCents - walletAppliedCents is charged by the gateway
+  subtotalCents       Int                 @default(0)
+  discountCents       Int                 @default(0)
+  walletAppliedCents  Int                 @default(0)
   totalCents          Int
-  currency            String      @default("USD")
-  stripeSessionId     String?     @unique
+  currency            String              @default("USD")
+  coupon              Coupon?             @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  couponId            String?
+  couponRedemption    CouponRedemption?
+  paymentProvider     PaymentProvider?
+  stripeSessionId     String?             @unique
   stripePaymentIntent String?
+  // Tap charge id
+  tapChargeId         String?             @unique
   paidAt              DateTime?
   fulfilledAt         DateTime?
+  refundedAt          DateTime?
   items               OrderItem[]
-  createdAt           DateTime    @default(now())
-  updatedAt           DateTime    @updatedAt
+  walletTransactions  WalletTransaction[]
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
 
   @@index([status, createdAt])
 }
@@ -149,6 +330,7 @@ model OrderItem {
   // Manual delivery (SERVICE, or stock shortfall), encrypted
   deliveryNote   String?         @db.Text
   deliveredAt    DateTime?
+  review         Review?
 
   @@index([orderId])
 }

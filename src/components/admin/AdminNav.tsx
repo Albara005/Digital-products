@@ -13,6 +13,10 @@ import {
   LogoutIcon,
   MenuIcon,
   ReceiptIcon,
+  ShieldIcon,
+  StarIcon,
+  HistoryIcon,
+  TagIcon,
   UsersIcon,
 } from "./icons";
 
@@ -54,7 +58,15 @@ export function AdminNav({ admin, awaitingDelivery, logoutAction }: Props) {
     { href: "/admin/products", label: "المنتجات", icon: BoxIcon },
     { href: "/admin/categories", label: "الفئات", icon: FolderIcon },
     { href: "/admin/inventory", label: "المخزون", icon: LayersIcon },
-    ...(admin.role === "SUPER_ADMIN" ? [{ href: "/admin/team", label: "الفريق", icon: UsersIcon }] : []),
+    { href: "/admin/coupons", label: "الكوبونات", icon: TagIcon },
+    { href: "/admin/reviews", label: "التقييمات", icon: StarIcon },
+    ...(admin.role === "SUPER_ADMIN"
+      ? [
+          { href: "/admin/team", label: "الفريق", icon: UsersIcon },
+          { href: "/admin/audit", label: "سجل النشاط", icon: HistoryIcon },
+        ]
+      : []),
+    { href: "/admin/account", label: "حسابي والأمان", icon: ShieldIcon },
   ];
 
   const links = (
