@@ -58,10 +58,14 @@ export function AdminNav({ admin, awaitingDelivery, logoutAction }: Props) {
     { href: "/admin/products", label: "المنتجات", icon: BoxIcon },
     { href: "/admin/categories", label: "الفئات", icon: FolderIcon },
     { href: "/admin/inventory", label: "المخزون", icon: LayersIcon },
+    { href: "/admin/customers", label: "العملاء", icon: UsersIcon },
+    { href: "/admin/tickets", label: "تذاكر الدعم", icon: ReceiptIcon },
     { href: "/admin/coupons", label: "الكوبونات", icon: TagIcon },
     { href: "/admin/reviews", label: "التقييمات", icon: StarIcon },
     ...(admin.role === "SUPER_ADMIN"
       ? [
+          { href: "/admin/reports", label: "التقارير", icon: HomeIcon },
+          { href: "/admin/settings", label: "الإعدادات", icon: ShieldIcon },
           { href: "/admin/team", label: "الفريق", icon: UsersIcon },
           { href: "/admin/audit", label: "سجل النشاط", icon: HistoryIcon },
         ]

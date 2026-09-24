@@ -34,18 +34,39 @@ enum AdminRole {
 }
 
 model Admin {
-  id                String     @id @default(cuid())
+  id                String              @id @default(cuid())
   name              String
-  email             String     @unique
+  email             String              @unique
   passwordHash      String
-  role              AdminRole  @default(STAFF)
+  role              AdminRole           @default(STAFF)
   // Sessions issued before this instant are rejected (password change / forced sign-out)
   passwordChangedAt DateTime?
   // TOTP 2FA: secret is AES-GCM encrypted; enabled once the first code is verified
   totpSecret        String?
   totpEnabledAt     DateTime?
   auditLogs         AuditLog[]
-  createdAt         DateTime   @default(now())
+  recoveryCodes     AdminRecoveryCode[]
+  ticketMessages    TicketMessage[]
+  createdAt         DateTime            @default(now())
+}
+
+// Single-use 2FA backup codes (HMAC hashed)
+model AdminRecoveryCode {
+  id        String    @id @default(cuid())
+  admin     Admin     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  adminId   String
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([adminId])
+}
+
+// Admin-editable store settings (referral rewards, etc.)
+model StoreSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
 }
 
 model AuditLog {
@@ -105,6 +126,8 @@ model ProductVariant {
   productId      String
   label          String
   priceCents     Int
+  // Supplier cost, for profit reports
+  costCents      Int?
   currency       String          @default("USD")
   sortOrder      Int             @default(0)
   inventoryItems InventoryItem[]
@@ -140,7 +163,81 @@ model Customer {
   orders             Order[]
   walletTransactions WalletTransaction[]
   walletTopups       WalletTopup[]
+  // Share link code (/?ref=CODE); generated on first account visit
+  referralCode       String?             @unique
+  referredBy         Customer?           @relation("Referrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referredById       String?
+  referrals          Customer[]          @relation("Referrals")
+  rewardsEarned      ReferralReward[]    @relation("RewardReferrer")
+  rewardReceived     ReferralReward?     @relation("RewardReferee")
+  tickets            Ticket[]
   createdAt          DateTime            @default(now())
+}
+
+enum ReferralRewardStatus {
+  PENDING
+  CREDITED
+  CANCELLED
+}
+
+// Wallet credit to the referrer for a referee's first paid order
+model ReferralReward {
+  id          String               @id @default(cuid())
+  referrer    Customer             @relation("RewardReferrer", fields: [referrerId], references: [id])
+  referrerId  String
+  referee     Customer             @relation("RewardReferee", fields: [refereeId], references: [id])
+  refereeId   String               @unique
+  order       Order                @relation(fields: [orderId], references: [id])
+  orderId     String               @unique
+  amountCents Int
+  status      ReferralRewardStatus @default(PENDING)
+  creditedAt  DateTime?
+  createdAt   DateTime             @default(now())
+
+  @@index([referrerId, createdAt])
+}
+
+enum TicketStatus {
+  OPEN
+  ANSWERED
+  CLOSED
+}
+
+enum TicketAuthor {
+  CUSTOMER
+  ADMIN
+}
+
+model Ticket {
+  id            String          @id @default(cuid())
+  customer      Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerId    String?
+  email         String
+  subject       String
+  status        TicketStatus    @default(OPEN)
+  order         Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderId       String?
+  // Lets guests follow their ticket via a private link
+  accessToken   String          @unique
+  messages      TicketMessage[]
+  lastMessageAt DateTime        @default(now())
+  createdAt     DateTime        @default(now())
+
+  @@index([status, lastMessageAt])
+  @@index([customerId])
+}
+
+model TicketMessage {
+  id        String       @id @default(cuid())
+  ticket    Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId  String
+  author    TicketAuthor
+  admin     Admin?       @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  adminId   String?
+  body      String       @db.Text
+  createdAt DateTime     @default(now())
+
+  @@index([ticketId, createdAt])
 }
 
 // One-time sign-in codes sent by email
@@ -307,6 +404,8 @@ model Order {
   refundedAt          DateTime?
   items               OrderItem[]
   walletTransactions  WalletTransaction[]
+  referralReward      ReferralReward?
+  tickets             Ticket[]
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
 
