@@ -273,6 +273,21 @@ const couponSelect = {
   product: { select: { name: true } },
 } satisfies Prisma.CouponSelect;
 
+/** Stripe rejects charges under $0.50; Tap has similar floors. */
+export const MIN_GATEWAY_CHARGE_CENTS = 50;
+
+/**
+ * How much of the wallet to spend: as much as possible, but never leave a gateway balance
+ * below MIN_GATEWAY_CHARGE_CENTS (it would be rejected); the wallet covers everything or
+ * leaves at least the minimum to pay by card.
+ */
+export function walletShare(balanceCents: number, totalCents: number): number {
+  const applied = Math.max(0, Math.min(balanceCents, totalCents));
+  const due = totalCents - applied;
+  if (due > 0 && due < MIN_GATEWAY_CHARGE_CENTS) return Math.max(0, totalCents - MIN_GATEWAY_CHARGE_CENTS);
+  return applied;
+}
+
 /**
  * Prices a cart for display. Never throws for business reasons: cart problems return
  * { ok: false, error }, and an unusable coupon returns couponError with no discount.
@@ -317,7 +332,7 @@ export async function quoteCart(input: QuoteInput): Promise<Quote> {
   if (input.customerId) {
     walletBalanceCents = await getWalletBalance(input.customerId);
     if (input.useWallet && currency === WALLET_CURRENCY) {
-      walletAppliedCents = Math.max(0, Math.min(walletBalanceCents, totalCents));
+      walletAppliedCents = walletShare(walletBalanceCents, totalCents);
     }
   }
 

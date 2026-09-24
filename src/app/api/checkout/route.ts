@@ -12,7 +12,7 @@ import {
   reserveStock,
 } from "@/lib/fulfillment";
 import { orderPagePath, siteUrl } from "@/lib/email";
-import { CouponError, claimCoupon, normalizeCouponCode, quoteCart, type QuoteLine } from "@/lib/pricing";
+import { CouponError, claimCoupon, normalizeCouponCode, quoteCart, walletShare, type QuoteLine } from "@/lib/pricing";
 import { WALLET_CURRENCY, debitWallet, lockWallet } from "@/lib/wallet";
 import { getCheckoutOptions, getProvider, resolveProvider, type ProviderId } from "@/lib/payments";
 import { clientIp, jsonError, rateLimit } from "../_lib/rate-limit";
@@ -134,7 +134,7 @@ async function createReservedOrder(req: OrderRequest): Promise<ReservedOrder | O
           }
           const discountCents = coupon?.discountCents ?? 0;
           const totalCents = req.subtotalCents - discountCents;
-          const walletAppliedCents = Math.max(0, Math.min(walletBalance, totalCents));
+          const walletAppliedCents = walletShare(walletBalance, totalCents);
 
           const data: Prisma.OrderCreateInput = {
             accessToken: randomToken(),

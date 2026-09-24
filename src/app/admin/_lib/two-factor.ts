@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { decrypt } from "@/lib/crypto";
 import { verifyTotp } from "@/lib/totp";
 
@@ -6,8 +7,12 @@ import { verifyTotp } from "@/lib/totp";
 // including within its own ±30 s window. In memory, per process: a restart forgets it
 // (a code seen in the last ~60 s could then be replayed once) and several instances don't share it.
 // Move it to a shared store (Redis / a DB column) if the app is ever scaled horizontally.
-const g = globalThis as unknown as { __nitroTotpLastStep?: Map<string, number> };
-const lastStep = (g.__nitroTotpLastStep ??= new Map<string, number>());
+// The entry is tied to a fingerprint of the secret, so a newly set-up secret starts fresh.
+type LastUse = { step: number; secret: string };
+const g = globalThis as unknown as { __nitroTotpLastStep?: Map<string, LastUse> };
+const lastStep = (g.__nitroTotpLastStep ??= new Map<string, LastUse>());
+
+const fingerprint = (secret: string) => createHash("sha256").update(secret).digest("base64url");
 
 export type TotpCheck = "ok" | "invalid" | "replay";
 
@@ -15,10 +20,11 @@ export type TotpCheck = "ok" | "invalid" | "replay";
 export function consumeTotp(adminId: string, secret: string, code: string): TotpCheck {
   const match = verifyTotp(secret, code);
   if (!match) return "invalid";
+  const fp = fingerprint(secret);
   // No await between the check and the write, so concurrent requests can't both pass
   const last = lastStep.get(adminId);
-  if (last !== undefined && match.step <= last) return "replay";
-  lastStep.set(adminId, match.step);
+  if (last && last.secret === fp && match.step <= last.step) return "replay";
+  lastStep.set(adminId, { step: match.step, secret: fp });
   return "ok";
 }
 
