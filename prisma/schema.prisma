@@ -87,21 +87,26 @@ model AuditLog {
 }
 
 model Category {
-  id          String    @id @default(cuid())
-  name        String
-  slug        String    @unique
-  description String?
-  sortOrder   Int       @default(0)
-  products    Product[]
-  coupons     Coupon[]
-  createdAt   DateTime  @default(now())
+  id            String    @id @default(cuid())
+  name          String
+  // English storefront text; falls back to the Arabic fields when empty
+  nameEn        String?
+  slug          String    @unique
+  description   String?
+  descriptionEn String?
+  sortOrder     Int       @default(0)
+  products      Product[]
+  coupons       Coupon[]
+  createdAt     DateTime  @default(now())
 }
 
 model Product {
   id            String           @id @default(cuid())
   name          String
+  nameEn        String?
   slug          String           @unique
   description   String?
+  descriptionEn String?          @db.Text
   imageUrl      String?
   type          ProductType
   active        Boolean          @default(true)
@@ -125,6 +130,7 @@ model ProductVariant {
   product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
   productId      String
   label          String
+  labelEn        String?
   priceCents     Int
   // Supplier cost, for profit reports
   costCents      Int?
