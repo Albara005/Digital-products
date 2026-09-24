@@ -8,13 +8,13 @@ import { CurrencyProvider } from "./currency";
 import { StoreFooter } from "./store-footer";
 import { StoreHeader } from "./store-header";
 
-export type ShellCurrency = { selected: string; options: CurrencyOption[] };
+export type ShellCurrency = { selected: string; options: CurrencyOption[]; manual: boolean };
 
 /** Storefront chrome. Used by the (store) layout and by the root 404 (which has no DB access). */
 export async function StoreShell({
   categories,
   account,
-  currency = { selected: BASE_CURRENCY, options: [] },
+  currency = { selected: BASE_CURRENCY, options: [], manual: false },
   children,
 }: {
   categories: NavCategory[];
@@ -27,7 +27,7 @@ export async function StoreShell({
   const [locale, t] = await Promise.all([getLocale(), getDictionary()]);
   return (
     <LocaleProvider locale={locale}>
-      <CurrencyProvider initial={currency.selected} options={currency.options}>
+      <CurrencyProvider initial={currency.selected} options={currency.options} manual={currency.manual}>
         <CartProvider>
           <a
             href="#main"

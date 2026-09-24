@@ -39,6 +39,8 @@ export const enClient: ClientDictionary = {
     language: "Language",
     currency: "Currency",
     currencyNote: "Converted prices are estimates; you are always charged in US dollars.",
+    auto: "Automatic",
+    autoHint: "Based on your country",
     usd: "US dollar",
     currencies: {
       USD: "US dollar",

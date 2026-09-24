@@ -1,5 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_HEADER, type Locale, isLocale, splitLocale } from "@/i18n/config";
+import {
+  CURRENCY_COOKIE,
+  CURRENCY_COOKIE_MAX_AGE,
+  CURRENCY_SOURCE_COOKIE,
+  currencyForAcceptLanguage,
+  currencyForCountry,
+} from "@/lib/display-currency";
 
 /*
  * Storefront proxy: locale routing and referral capture.
@@ -17,6 +24,18 @@ import { DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_HEADER, type Locale, isLocale, sp
  * check mirrors REFERRAL_CODE_RE in src/lib/referrals.ts (server-only, not importable here);
  * whether the code belongs to anyone is decided at checkout.
  */
+
+// Country headers set by common CDNs / hosts in front of the app (Cloudflare, Vercel, CloudFront, Fastly, generic)
+const COUNTRY_HEADERS = ["cf-ipcountry", "x-vercel-ip-country", "cloudfront-viewer-country", "fastly-client-country", "x-country-code", "x-geo-country"];
+
+/** Display currency from the visitor's country (CDN header) or browser region; null if unknown. */
+function detectCurrency(request: NextRequest) {
+  for (const name of COUNTRY_HEADERS) {
+    const found = currencyForCountry(request.headers.get(name));
+    if (found) return found;
+  }
+  return currencyForAcceptLanguage(request.headers.get("accept-language"));
+}
 
 const REF_COOKIE = "nitro_ref";
 const REF_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
@@ -78,6 +97,19 @@ export function proxy(request: NextRequest) {
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set(LOCALE_HEADER, locale);
+
+  // First visit: pick the display currency from the visitor's country. It's also added to this
+  // request's cookies so the very first render already shows local prices. The browser's time zone
+  // refines it client-side (src/components/store/currency.tsx) while the choice is still "auto".
+  const autoCurrency =
+    !request.cookies.has(CURRENCY_COOKIE) && !BOT.test(request.headers.get("user-agent") ?? "") ? detectCurrency(request) : null;
+  if (autoCurrency) {
+    const cookieHeader = request.headers.get("cookie");
+    requestHeaders.set(
+      "cookie",
+      `${cookieHeader ? `${cookieHeader}; ` : ""}${CURRENCY_COOKIE}=${autoCurrency}; ${CURRENCY_SOURCE_COOKIE}=auto`,
+    );
+  }
   let response: NextResponse;
   if (prefix) {
     const target = url.clone();
@@ -85,6 +117,12 @@ export function proxy(request: NextRequest) {
     response = NextResponse.rewrite(target, { request: { headers: requestHeaders } });
   } else {
     response = NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  if (autoCurrency) {
+    const opts = { path: "/", sameSite: "lax" as const, maxAge: CURRENCY_COOKIE_MAX_AGE };
+    response.cookies.set(CURRENCY_COOKIE, autoCurrency, opts);
+    response.cookies.set(CURRENCY_SOURCE_COOKIE, "auto", opts);
   }
 
   const remembered = request.cookies.get(LOCALE_COOKIE)?.value;

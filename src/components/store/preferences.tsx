@@ -57,7 +57,7 @@ export function PreferencesMenu({ compact = false, className = "" }: { compact?:
   const t = useT();
   const id = useId();
   const locale = useLocale();
-  const { selected, options, select } = useDisplayCurrency();
+  const { selected, options, select, auto, selectAuto } = useDisplayCurrency();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
@@ -117,9 +117,25 @@ export function PreferencesMenu({ compact = false, className = "" }: { compact?:
           {options.length > 0 ? (
             <fieldset className="mt-4">
               <legend className="text-xs font-bold text-muted">{t.prefs.currency}</legend>
+              <button
+                type="button"
+                aria-pressed={auto}
+                onClick={() => {
+                  selectAuto();
+                  setOpen(false);
+                }}
+                className={`mt-2 flex h-10 w-full items-center justify-between gap-2 rounded-lg border px-3 text-sm transition ${
+                  auto ? "border-volt bg-volt/[0.07] text-volt" : "border-border bg-surface-2 hover:border-muted/50"
+                }`}
+              >
+                <span className="font-semibold">
+                  {t.prefs.auto} <span className="text-xs font-normal text-muted">· {t.prefs.autoHint}</span>
+                </span>
+                {auto ? <span className="font-display text-xs font-bold">{current}</span> : null}
+              </button>
               <div className="mt-2 grid max-h-64 grid-cols-2 gap-2 overflow-y-auto">
                 {codes.map((code) => {
-                  const active = code === current;
+                  const active = !auto && code === current;
                   return (
                     <button
                       key={code}
@@ -149,11 +165,13 @@ export function PreferencesMenu({ compact = false, className = "" }: { compact?:
   );
 }
 
+const AUTO_VALUE = "auto";
+
 /** Compact language + currency row for the footer. */
 export function FooterPreferences({ label }: { label: string }) {
   const t = useT();
   const id = useId();
-  const { selected, options, select } = useDisplayCurrency();
+  const { selected, options, select, auto, selectAuto } = useDisplayCurrency();
   const current = selected?.code ?? BASE_CURRENCY;
   return (
     <div role="group" aria-label={label} className="flex flex-wrap items-center gap-3">
@@ -171,10 +189,17 @@ export function FooterPreferences({ label }: { label: string }) {
           </label>
           <select
             id={`${id}-currency`}
-            value={current}
-            onChange={(e) => select(isDisplayCurrency(e.target.value) ? e.target.value : BASE_CURRENCY)}
+            value={auto ? AUTO_VALUE : current}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === AUTO_VALUE) selectAuto();
+              else select(isDisplayCurrency(v) ? v : BASE_CURRENCY);
+            }}
             className="h-8 rounded-full border border-border bg-surface-2 px-3 font-display text-xs font-bold text-text focus:border-volt focus:outline-none"
           >
+            <option value={AUTO_VALUE}>
+              {t.prefs.auto} ({current})
+            </option>
             {[BASE_CURRENCY, ...options.map((o) => o.code)].map((code) => (
               <option key={code} value={code}>
                 {code} — {t.prefs.currencies[code]}

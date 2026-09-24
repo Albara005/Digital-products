@@ -39,3 +39,49 @@ export function formatConverted(usdCents: number, option: CurrencyOption, locale
     maximumFractionDigits: digits,
   }).format((usdCents / 100) * option.rate);
 }
+
+/** "auto" = picked from the visitor's country (may be re-detected); "manual" = the visitor chose it (never overridden). */
+export const CURRENCY_SOURCE_COOKIE = "nitro_currency_src";
+export type CurrencySource = "auto" | "manual";
+export const CURRENCY_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+
+const COUNTRY_CURRENCY: Record<string, DisplayCurrency> = {
+  SA: "SAR",
+  AE: "AED",
+  KW: "KWD",
+  QA: "QAR",
+  BH: "BHD",
+  OM: "OMR",
+  EG: "EGP",
+};
+
+const TIMEZONE_CURRENCY: Record<string, DisplayCurrency> = {
+  "Asia/Riyadh": "SAR",
+  "Asia/Dubai": "AED",
+  "Asia/Kuwait": "KWD",
+  "Asia/Qatar": "QAR",
+  "Asia/Bahrain": "BHD",
+  "Asia/Muscat": "OMR",
+  "Africa/Cairo": "EGP",
+};
+
+/** ISO country code ("SA", "om") -> display currency, or null outside the supported countries. */
+export function currencyForCountry(country: string | null | undefined): DisplayCurrency | null {
+  return (country && COUNTRY_CURRENCY[country.trim().toUpperCase()]) || null;
+}
+
+/** IANA time zone ("Asia/Muscat") -> display currency, or null. */
+export function currencyForTimeZone(timeZone: string | null | undefined): DisplayCurrency | null {
+  return (timeZone && TIMEZONE_CURRENCY[timeZone]) || null;
+}
+
+/** First supported country found in Accept-Language region subtags ("ar-SA,ar;q=0.9" -> "SAR"). */
+export function currencyForAcceptLanguage(acceptLanguage: string | null | undefined): DisplayCurrency | null {
+  if (!acceptLanguage) return null;
+  for (const part of acceptLanguage.split(",")) {
+    const region = part.trim().split(";")[0]?.split("-")[1];
+    const found = currencyForCountry(region);
+    if (found) return found;
+  }
+  return null;
+}

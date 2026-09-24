@@ -43,6 +43,8 @@ export const arClient = {
     language: "اللغة",
     currency: "العملة",
     currencyNote: "الأسعار المحوّلة تقريبية؛ الدفع يتم بالدولار الأمريكي.",
+    auto: "تلقائي",
+    autoHint: "حسب دولتك",
     usd: "دولار أمريكي",
     currencies: {
       USD: "دولار أمريكي",

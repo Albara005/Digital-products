@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { WALLET_CURRENCY } from "@/components/store/site";
 import { type ShellCurrency, StoreShell } from "@/components/store/store-shell";
-import { BASE_CURRENCY, CURRENCY_COOKIE } from "@/lib/display-currency";
+import { BASE_CURRENCY, CURRENCY_COOKIE, CURRENCY_SOURCE_COOKIE } from "@/lib/display-currency";
 import { getSetting } from "@/lib/settings";
 import { getNavCategories } from "./_lib/queries";
 import { getSignedInCustomer } from "./_lib/session";
@@ -11,14 +11,16 @@ export const dynamic = "force-dynamic";
 
 /** Enabled display currencies and the visitor's choice (cookie); USD only if settings can't be read. */
 async function loadCurrency(): Promise<ShellCurrency> {
-  const chosen = (await cookies()).get(CURRENCY_COOKIE)?.value ?? BASE_CURRENCY;
+  const jar = await cookies();
+  const chosen = jar.get(CURRENCY_COOKIE)?.value ?? BASE_CURRENCY;
+  const manual = jar.get(CURRENCY_SOURCE_COOKIE)?.value === "manual";
   try {
     const { enabled, rates } = await getSetting("currencies");
     const options = enabled.map((code) => ({ code, rate: rates[code] }));
-    return { selected: options.some((o) => o.code === chosen) ? chosen : BASE_CURRENCY, options };
+    return { selected: options.some((o) => o.code === chosen) ? chosen : BASE_CURRENCY, options, manual };
   } catch (err) {
     console.error("[store] Failed to load display currencies", err);
-    return { selected: BASE_CURRENCY, options: [] };
+    return { selected: BASE_CURRENCY, options: [], manual };
   }
 }
 
