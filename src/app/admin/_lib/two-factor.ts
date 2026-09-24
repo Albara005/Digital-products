@@ -1,7 +1,9 @@
 import "server-only";
-import { createHash } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { decrypt } from "@/lib/crypto";
-import { verifyTotp } from "@/lib/totp";
+import { prisma } from "@/lib/prisma";
+import { base32Encode, verifyTotp } from "@/lib/totp";
 
 // Last accepted TOTP time step per admin, so a code can't be used twice (RFC 6238 §5.2),
 // including within its own ±30 s window. In memory, per process: a restart forgets it
@@ -48,4 +50,82 @@ export function normalizeCode(raw: string): string {
     .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
     .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
   return /^[0-9]{6}$/.test(digits) ? digits : "";
+}
+
+// ---------------------------------------------------------------------------------------------
+// Recovery codes: 10 single-use backup codes shown once when 2FA is enabled (or regenerated).
+// Format XXXX-XXXX in RFC 4648 base32 (A-Z, 2-7): 40 random bits each. Only an HMAC-SHA256 keyed
+// with AUTH_SECRET is stored, so a database leak alone doesn't reveal usable codes. Rotating
+// AUTH_SECRET invalidates every stored code (admins then sign in with TOTP and regenerate).
+// ---------------------------------------------------------------------------------------------
+
+export const RECOVERY_CODE_COUNT = 10;
+
+function recoveryKey(): string {
+  const key = process.env.AUTH_SECRET;
+  if (!key) throw new Error("AUTH_SECRET is not set");
+  return key;
+}
+
+/**
+ * A recovery code as typed -> canonical 8 characters, or "" when it can't be one.
+ * Case-insensitive; ignores spaces and hyphens; reads 0/1/8 as O/I/B (not in the base32 alphabet).
+ */
+export function normalizeRecoveryCode(raw: string): string {
+  const clean = raw
+    .toUpperCase()
+    .replace(/[\s\-\u2010-\u2015]/g, "")
+    .replace(/0/g, "O")
+    .replace(/1/g, "I")
+    .replace(/8/g, "B");
+  return /^[A-Z2-7]{8}$/.test(clean) ? clean : "";
+}
+
+export function hashRecoveryCode(normalized: string): string {
+  return createHmac("sha256", recoveryKey()).update(`admin-recovery:${normalized}`).digest("hex");
+}
+
+function newRecoveryCode(): string {
+  const raw = base32Encode(randomBytes(5), { padding: false }); // 40 bits -> exactly 8 characters
+  return `${raw.slice(0, 4)}-${raw.slice(4)}`;
+}
+
+/**
+ * Replaces all of the admin's recovery codes with a fresh set and returns the plain codes
+ * (the only time they exist in clear). Pass `tx` to make it part of a larger transaction.
+ */
+export async function replaceRecoveryCodes(adminId: string, tx?: Prisma.TransactionClient): Promise<string[]> {
+  const codes = new Set<string>();
+  while (codes.size < RECOVERY_CODE_COUNT) codes.add(newRecoveryCode());
+  const list = [...codes];
+  const data = list.map((code) => ({ adminId, codeHash: hashRecoveryCode(normalizeRecoveryCode(code)) }));
+  const run = async (db: Prisma.TransactionClient) => {
+    await db.adminRecoveryCode.deleteMany({ where: { adminId } });
+    await db.adminRecoveryCode.createMany({ data });
+  };
+  if (tx) await run(tx);
+  else await prisma.$transaction(run);
+  return list;
+}
+
+export function deleteRecoveryCodes(adminId: string, tx?: Prisma.TransactionClient) {
+  return (tx ?? prisma).adminRecoveryCode.deleteMany({ where: { adminId } });
+}
+
+export function countUnusedRecoveryCodes(adminId: string): Promise<number> {
+  return prisma.adminRecoveryCode.count({ where: { adminId, usedAt: null } });
+}
+
+/**
+ * Marks the matching unused code as used and returns true, atomically: the update is conditional
+ * on usedAt still being null, so two concurrent sign-ins with the same code can't both succeed.
+ */
+export async function consumeRecoveryCode(adminId: string, raw: string): Promise<boolean> {
+  const normalized = normalizeRecoveryCode(raw);
+  if (!normalized) return false;
+  const res = await prisma.adminRecoveryCode.updateMany({
+    where: { adminId, codeHash: hashRecoveryCode(normalized), usedAt: null },
+    data: { usedAt: new Date() },
+  });
+  return res.count > 0;
 }

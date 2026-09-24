@@ -1,7 +1,11 @@
 import "server-only";
 import type { PaymentProvider, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { sendOrderDeliveredEmail } from "@/lib/email";
+import { sendOrderDeliveredEmail, siteUrl } from "@/lib/email";
+import { formatPrice } from "@/lib/format";
+import { notifyAdmin } from "@/lib/notify";
+import { creditReferralReward, recordReferralReward } from "@/lib/referrals";
+import { getSetting } from "@/lib/settings";
 import { InsufficientBalanceError, creditWallet, debitWallet, orderWalletNetDebit } from "@/lib/wallet";
 
 /*
@@ -154,12 +158,12 @@ async function reacquireOrderHolds(tx: Prisma.TransactionClient, orderId: string
  * True only for the caller that transitioned.
  */
 export async function markOrderPaid(orderId: string, payment: PaymentConfirmation): Promise<boolean> {
-  return prisma.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<(HoldRow & { status: string })[]>`
-      SELECT status::text AS status, "customerId", "walletAppliedCents", "couponId"
+  const paid = await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<(HoldRow & { status: string; totalCents: number; currency: string })[]>`
+      SELECT status::text AS status, "customerId", "walletAppliedCents", "couponId", "totalCents", currency
       FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
     const order = rows[0];
-    if (!order || (order.status !== "PENDING" && order.status !== "FAILED")) return false;
+    if (!order || (order.status !== "PENDING" && order.status !== "FAILED")) return null;
     if (order.status === "FAILED") await reacquireOrderHolds(tx, orderId, order);
 
     await tx.order.update({
@@ -173,8 +177,72 @@ export async function markOrderPaid(orderId: string, payment: PaymentConfirmatio
         ...(payment.tapChargeId ? { tapChargeId: payment.tapChargeId } : {}),
       },
     });
-    return true;
+    return { totalCents: order.totalCents, currency: order.currency };
   }, TX_OPTIONS);
+  if (!paid) return false;
+
+  // After the commit, and never able to fail the payment confirmation
+  void notifyAdmin(
+    "order.paid",
+    `💰 طلب مدفوع #${shortOrderId(orderId)} بقيمة ${formatPrice(paid.totalCents, paid.currency)} (${payment.provider})\n${adminOrderUrl(orderId)}`,
+  );
+  try {
+    await recordReferralReward(orderId);
+  } catch (err) {
+    console.error(`[fulfillment] Order ${orderId}: recording the referral reward failed (retried when fulfilled)`, err);
+  }
+  return true;
+}
+
+const shortOrderId = (orderId: string) => orderId.slice(-8).toUpperCase();
+const adminOrderUrl = (orderId: string) => `${siteUrl()}/admin/orders/${orderId}`;
+
+// One "needs manual delivery" alert per order per process for this long (webhook + return page +
+// admin retries all call fulfillOrder).
+const MANUAL_ALERT_TTL_MS = 30 * 60_000;
+const alertState = globalThis as unknown as { __nitroManualDeliveryAlerts?: Map<string, number> };
+const manualAlerts = (alertState.__nitroManualDeliveryAlerts ??= new Map<string, number>());
+
+function alertNeedsManualDelivery(orderId: string, reason: string) {
+  const now = Date.now();
+  const last = manualAlerts.get(orderId);
+  if (last && now - last < MANUAL_ALERT_TTL_MS) return;
+  if (manualAlerts.size > 1_000) {
+    for (const [id, at] of manualAlerts) if (now - at >= MANUAL_ALERT_TTL_MS) manualAlerts.delete(id);
+  }
+  manualAlerts.set(orderId, now);
+  void notifyAdmin("order.needs_manual_delivery", `⚠️ الطلب #${shortOrderId(orderId)} يحتاج تسليماً يدوياً: ${reason}\n${adminOrderUrl(orderId)}`);
+}
+
+/** Alerts the owner when a variant sold in this call is running low. Never throws. */
+async function alertLowStock(variantIds: string[]): Promise<void> {
+  if (variantIds.length === 0) return;
+  try {
+    const { lowStockThreshold } = await getSetting("store");
+    if (!Number.isFinite(lowStockThreshold) || lowStockThreshold <= 0) return;
+    const [counts, variants] = await Promise.all([
+      prisma.inventoryItem.groupBy({
+        by: ["variantId"],
+        where: { variantId: { in: variantIds }, status: "AVAILABLE" },
+        _count: { _all: true },
+      }),
+      prisma.productVariant.findMany({
+        where: { id: { in: variantIds } },
+        select: { id: true, label: true, productId: true, product: { select: { name: true } } },
+      }),
+    ]);
+    const available = new Map(counts.map((c) => [c.variantId, c._count._all]));
+    for (const v of variants) {
+      const left = available.get(v.id) ?? 0;
+      if (left >= lowStockThreshold) continue;
+      void notifyAdmin(
+        "stock.low",
+        `📉 مخزون منخفض: ${v.product.name} - ${v.label} (المتبقي ${left})\n${siteUrl()}/admin/products/${v.productId}/inventory`,
+      );
+    }
+  } catch (err) {
+    console.error("[fulfillment] Low-stock check failed", err);
+  }
 }
 
 /** Returns an order's RESERVED units to AVAILABLE. Safe to call any time; SOLD units are never touched. */
@@ -316,14 +384,17 @@ export async function fulfillOrder(orderId: string): Promise<void> {
         `[fulfillment] Order ${orderId}: wallet part not covered (${covered}/${order.walletAppliedCents} cents). ` +
           "Not delivering automatically; review manually.",
       );
+      alertNeedsManualDelivery(orderId, "رصيد المحفظة لم يعد يغطي جزء الطلب (دفع متأخر)");
       return;
     }
   }
 
   const failures: unknown[] = [];
+  const soldVariants = new Set<string>();
   for (const item of order.items) {
     try {
       const outcome = await deliverItem(orderId, item);
+      if (outcome.kind === "delivered") soldVariants.add(item.variantId);
       if (outcome.kind === "shortfall") {
         console.warn(
           `[fulfillment] Order ${orderId}: not enough stock for "${item.productName} - ${item.variantLabel}" ` +
@@ -337,6 +408,24 @@ export async function fulfillOrder(orderId: string): Promise<void> {
   }
 
   await refreshOrderStatus(orderId);
+
+  await alertLowStock([...soldVariants]);
+  try {
+    const left = await prisma.orderItem.findMany({
+      where: { orderId, deliveredAt: null, order: { status: "PAID" } },
+      select: { productType: true },
+    });
+    if (left.length > 0) {
+      const services = left.filter((i) => i.productType === "SERVICE").length;
+      const reason =
+        services === left.length
+          ? `${left.length} عنصر خدمة بانتظار التسليم`
+          : `${left.length} عنصر لم يُسلَّم (مخزون غير كافٍ${services ? " أو خدمة يدوية" : ""})`;
+      alertNeedsManualDelivery(orderId, reason);
+    }
+  } catch (err) {
+    console.error(`[fulfillment] Order ${orderId}: checking undelivered items failed`, err);
+  }
 
   if (failures.length > 0) {
     throw new Error(`Fulfillment failed for ${failures.length} item(s) of order ${orderId}`, { cause: failures[0] });
@@ -363,5 +452,12 @@ export async function refreshOrderStatus(orderId: string): Promise<void> {
     // Items delivered manually may still hold reserved units that were never sold
     await releaseOrderReservations(orderId);
     await sendOrderDeliveredEmail(orderId);
+    // Referral: (re)record the reward in case the PAID hook missed it, then credit it exactly once
+    try {
+      await recordReferralReward(orderId);
+      await creditReferralReward(orderId);
+    } catch (err) {
+      console.error(`[fulfillment] Order ${orderId}: crediting the referral reward failed (retried from the referrer's account page)`, err);
+    }
   }
 }

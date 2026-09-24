@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -13,6 +14,7 @@ import {
 } from "@/lib/fulfillment";
 import { orderPagePath, siteUrl } from "@/lib/email";
 import { CouponError, claimCoupon, normalizeCouponCode, quoteCart, walletShare, type QuoteLine } from "@/lib/pricing";
+import { REFERRAL_COOKIE, attachReferrer } from "@/lib/referrals";
 import { WALLET_CURRENCY, debitWallet, lockWallet } from "@/lib/wallet";
 import { getCheckoutOptions, getProvider, resolveProvider, type ProviderId } from "@/lib/payments";
 import { clientIp, jsonError, rateLimit } from "../_lib/rate-limit";
@@ -77,6 +79,15 @@ async function currentCustomer(): Promise<CustomerSession | null> {
   }
 }
 
+/** The `?ref=` code captured by src/proxy.ts, if any (validated again by attachReferrer). */
+async function referralCookie(): Promise<string | null> {
+  try {
+    return (await cookies()).get(REFERRAL_COOKIE)?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** A checkout the buyer must fix (HTTP status + Arabic message); thrown inside the transaction to roll it back. */
 class CheckoutRejection extends Error {
   constructor(
@@ -103,6 +114,7 @@ type OrderRequest = {
   subtotalCents: number;
   couponCode: string | null;
   useWallet: boolean;
+  referralCode: string | null;
 };
 
 /**
@@ -127,6 +139,8 @@ async function createReservedOrder(req: OrderRequest): Promise<ReservedOrder | O
             customerId = customer.id;
           }
           const walletBalance = req.useWallet && req.currency === WALLET_CURRENCY ? await lockWallet(tx, customerId) : 0;
+          // Referral link: only a buyer who never paid, isn't referred yet and isn't the referrer
+          if (req.referralCode) await attachReferrer(tx, { customerId, email: req.email }, req.referralCode);
 
           let coupon: { couponId: string; discountCents: number } | null = null;
           if (req.couponCode) {
@@ -300,6 +314,7 @@ export async function POST(req: Request) {
         subtotalCents: quote.subtotalCents,
         couponCode,
         useWallet,
+        referralCode: await referralCookie(),
       });
     } catch (err) {
       if (err instanceof CouponError) return jsonError(err.message, 409);

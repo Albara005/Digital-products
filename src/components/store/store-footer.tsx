@@ -9,6 +9,7 @@ const columns = [
     links: [
       { href: "/faq", label: "الأسئلة الشائعة" },
       { href: "/contact", label: "تواصل معنا" },
+      { href: "/support", label: "تذاكر الدعم" },
       { href: "/cart", label: "سلة المشتريات" },
     ],
   },

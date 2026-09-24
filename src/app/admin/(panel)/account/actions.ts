@@ -17,7 +17,14 @@ import {
   registerLoginFailure,
   registerTwoFactorFailure,
 } from "../../_lib/rate-limit";
-import { consumeTotp, normalizeCode, readTotpSecret } from "../../_lib/two-factor";
+import type { RecoveryCodesState } from "@/components/admin/AccountForms";
+import {
+  consumeTotp,
+  deleteRecoveryCodes,
+  normalizeCode,
+  readTotpSecret,
+  replaceRecoveryCodes,
+} from "../../_lib/two-factor";
 import { fail, fromZod, ok, str } from "../../_lib/validation";
 
 // Every action here is for the signed-in admin's own account, so none takes an admin id from the form.
@@ -144,8 +151,13 @@ export async function cancelTotpSetup(): Promise<FormState> {
   return ok("أُلغي الإعداد.");
 }
 
-/** Step 2: the first valid code (plus the password, so a hijacked session can't bind its own phone). */
-export async function confirmTotpSetup(_prev: FormState, formData: FormData): Promise<FormState> {
+/**
+ * Step 2: the first valid code (plus the password, so a hijacked session can't bind its own phone).
+ * Returns the new recovery codes, shown once. It deliberately doesn't revalidate: the page would
+ * switch to its "enabled" view and unmount the form holding the codes; the client refreshes once
+ * the admin confirms they saved them.
+ */
+export async function confirmTotpSetup(_prev: FormState, formData: FormData): Promise<RecoveryCodesState> {
   const session = await self();
   const admin = await prisma.admin.findUnique({
     where: { id: session.adminId },
@@ -160,14 +172,36 @@ export async function confirmTotpSetup(_prev: FormState, formData: FormData): Pr
   if (denied) return denied;
 
   // Conditional on the same encrypted secret, so a concurrent "start again" can't enable a key the admin never scanned
-  const res = await prisma.admin.updateMany({
-    where: { id: session.adminId, totpEnabledAt: null, totpSecret: admin.totpSecret },
-    data: { totpEnabledAt: new Date() },
+  const codes = await prisma.$transaction(async (tx) => {
+    const res = await tx.admin.updateMany({
+      where: { id: session.adminId, totpEnabledAt: null, totpSecret: admin.totpSecret },
+      data: { totpEnabledAt: new Date() },
+    });
+    if (res.count === 0) return null;
+    return replaceRecoveryCodes(session.adminId, tx);
   });
-  if (res.count === 0) return fail("تغيّر الإعداد في نافذة أخرى. أعد تحميل الصفحة.");
-  await audit(actor(session), "account.2fa_enable", selfTarget(session));
-  revalidatePath("/admin", "layout");
-  return ok("تم تفعيل التحقق بخطوتين. سيُطلب الرمز عند كل تسجيل دخول.");
+  if (!codes) return fail("تغيّر الإعداد في نافذة أخرى. أعد تحميل الصفحة.");
+  await audit(actor(session), "account.2fa_enable", selfTarget(session), { recoveryCodes: codes.length });
+  return { ok: true, message: "تم تفعيل التحقق بخطوتين. سيُطلب الرمز عند كل تسجيل دخول.", ts: Date.now(), codes };
+}
+
+/** New set of recovery codes (old ones stop working). Needs the password and a current authenticator code. */
+export async function regenerateRecoveryCodes(_prev: FormState, formData: FormData): Promise<RecoveryCodesState> {
+  const session = await self();
+  const admin = await prisma.admin.findUnique({
+    where: { id: session.adminId },
+    select: { totpSecret: true, totpEnabledAt: true },
+  });
+  if (!admin?.totpEnabledAt) return fail("فعّل التحقق بخطوتين أولاً.");
+  const secret = readTotpSecret(admin.totpSecret);
+  if (!secret) return fail("تعذّر قراءة مفتاح التحقق. اطلب من المدير العام تعطيله لحسابك ثم فعّله من جديد.");
+
+  const denied = (await checkCurrentPassword(session, str(formData, "currentPassword"))) ?? (await checkCode(session, secret, str(formData, "code")));
+  if (denied) return denied;
+
+  const codes = await replaceRecoveryCodes(session.adminId);
+  await audit(actor(session), "account.recovery_codes_regenerate", selfTarget(session), { count: codes.length });
+  return { ok: true, message: "أُنشئت رموز استرداد جديدة وأُلغيت القديمة.", ts: Date.now(), codes };
 }
 
 export async function disableOwnTotp(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -183,7 +217,10 @@ export async function disableOwnTotp(_prev: FormState, formData: FormData): Prom
   const denied = (await checkCurrentPassword(session, str(formData, "currentPassword"))) ?? (await checkCode(session, secret, str(formData, "code")));
   if (denied) return denied;
 
-  await prisma.admin.update({ where: { id: session.adminId }, data: { totpSecret: null, totpEnabledAt: null } });
+  await prisma.$transaction(async (tx) => {
+    await tx.admin.update({ where: { id: session.adminId }, data: { totpSecret: null, totpEnabledAt: null } });
+    await deleteRecoveryCodes(session.adminId, tx);
+  });
   await audit(actor(session), "account.2fa_disable", selfTarget(session));
   revalidatePath("/admin", "layout");
   return ok("تم تعطيل التحقق بخطوتين.");

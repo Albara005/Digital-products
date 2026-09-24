@@ -31,10 +31,24 @@ const priceSchema = z
   })
   .refine((cents) => cents > 0, "السعر يجب أن يكون أكبر من صفر");
 
+/** Optional supplier cost in dollars: "" / missing -> null (unknown), "0" is a valid zero cost. */
+const costSchema = z
+  .string()
+  .trim()
+  .optional()
+  .transform((v) => v ?? "")
+  .refine((v) => v === "" || /^\d{1,6}(\.\d{1,2})?$/.test(v), "تكلفة غير صالحة (مثال: 7.50)")
+  .transform((v) => {
+    if (v === "") return null;
+    const [whole, frac = ""] = v.split(".");
+    return Number(whole) * 100 + Number((frac + "00").slice(0, 2));
+  });
+
 const variantSchema = z.object({
   id: idSchema.optional(),
   label: z.string().trim().min(1, "اسم الخيار مطلوب").max(80, "الاسم طويل جداً"),
   price: priceSchema,
+  cost: costSchema,
   sortOrder: z.coerce.number("أدخل رقماً").int("رقم صحيح").min(-10000).max(10000),
 });
 
@@ -91,7 +105,12 @@ function parseVariants(raw: string): unknown {
 type VariantChanges = {
   added: { label: string; priceCents: number }[];
   removed: { id: string; label: string }[];
-  updated: { id: string; label: string; from: { label: string; priceCents: number }; to: { label: string; priceCents: number } }[];
+  updated: {
+    id: string;
+    label: string;
+    from: { label: string; priceCents: number; costCents: number | null };
+    to: { label: string; priceCents: number; costCents: number | null };
+  }[];
 };
 
 export async function saveProduct(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -140,7 +159,7 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
           data: {
             ...productData,
             variants: {
-              create: input.variants.map((v) => ({ label: v.label, priceCents: v.price, sortOrder: v.sortOrder })),
+              create: input.variants.map((v) => ({ label: v.label, priceCents: v.price, costCents: v.cost, sortOrder: v.sortOrder })),
             },
           },
           select: { id: true },
@@ -154,6 +173,7 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
           id: true,
           label: true,
           priceCents: true,
+          costCents: true,
           _count: {
             select: {
               orderItems: true,
@@ -192,17 +212,17 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
       if (removed.length) await tx.productVariant.deleteMany({ where: { id: { in: removed.map((v) => v.id) } } });
       const before = new Map(existing.map((v) => [v.id, v]));
       for (const v of input.variants) {
-        const data = { label: v.label, priceCents: v.price, sortOrder: v.sortOrder };
+        const data = { label: v.label, priceCents: v.price, costCents: v.cost, sortOrder: v.sortOrder };
         if (v.id) await tx.productVariant.update({ where: { id: v.id }, data });
         else await tx.productVariant.create({ data: { ...data, productId: input.id } });
         const old = v.id ? before.get(v.id) : undefined;
         if (!old) variantChanges.added.push({ label: v.label, priceCents: v.price });
-        else if (old.label !== v.label || old.priceCents !== v.price) {
+        else if (old.label !== v.label || old.priceCents !== v.price || old.costCents !== v.cost) {
           variantChanges.updated.push({
             id: old.id,
             label: v.label,
-            from: { label: old.label, priceCents: old.priceCents },
-            to: { label: v.label, priceCents: v.price },
+            from: { label: old.label, priceCents: old.priceCents, costCents: old.costCents },
+            to: { label: v.label, priceCents: v.price, costCents: v.cost },
           });
         }
       }
@@ -224,7 +244,7 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
       name: input.name,
       slug,
       type: input.type,
-      variants: input.variants.map((v) => ({ label: v.label, priceCents: v.price })),
+      variants: input.variants.map((v) => ({ label: v.label, priceCents: v.price, costCents: v.cost })),
     });
   } else {
     await audit(who, "product.update", target, { name: input.name, slug, active: input.active, featured: input.featured });

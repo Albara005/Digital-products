@@ -2,7 +2,11 @@ import "server-only";
 import type { PaymentProvider } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { audit, type AuditActor } from "@/lib/audit";
+import { siteUrl } from "@/lib/email";
+import { formatPrice } from "@/lib/format";
 import { releaseOrderReservations } from "@/lib/fulfillment";
+import { notifyAdmin } from "@/lib/notify";
+import { cancelReferralRewardInTx } from "@/lib/referrals";
 import { creditWallet, orderWalletNetDebit } from "@/lib/wallet";
 import { getProvider } from "./providers";
 import { PaymentProviderError, type RefundReceipt } from "./types";
@@ -119,6 +123,9 @@ export async function refundOrderPayment(
       });
       if (updated.count !== 1) throw new Error(`Order ${orderId} changed while locked`);
       const releasedUnits = await releaseOrderReservations(orderId, tx);
+      // A referral reward not yet credited is cancelled with the refund; a credited one stays
+      // with the referrer (no claw-back) and is only noted in the audit row.
+      const referralReward = await cancelReferralRewardInTx(tx, orderId);
 
       return {
         provider,
@@ -127,6 +134,7 @@ export async function refundOrderPayment(
         walletCreditCents,
         refundedCents: (opts.method === "ORIGINAL" ? gatewayCents : 0) + walletCreditCents,
         releasedUnits,
+        referralReward,
       };
     }, REFUND_TX);
 
@@ -139,11 +147,17 @@ export async function refundOrderPayment(
       gatewayCents: outcome.gatewayCents,
       walletCreditCents: outcome.walletCreditCents,
       releasedUnits: outcome.releasedUnits,
+      referralReward: outcome.referralReward,
       gatewayRefundId: receipt?.refundId ?? null,
       gatewayRefundStatus: receipt?.status ?? null,
       // Dev-mode orders were never charged: an ORIGINAL refund has nothing to send back
       ...(outcome.provider === "DEV" && opts.method === "ORIGINAL" ? { simulated: true } : {}),
     });
+    void notifyAdmin(
+      "refund.done",
+      `↩️ استرجاع الطلب #${orderId.slice(-8).toUpperCase()} بقيمة ${formatPrice(outcome.refundedCents, outcome.currency)} ` +
+        `(${opts.method === "WALLET" ? "إلى المحفظة" : "إلى وسيلة الدفع"})\n${siteUrl()}/admin/orders/${orderId}`,
+    );
     return { ok: true, refundedCents: outcome.refundedCents };
   } catch (err) {
     if (err instanceof RefundRejected) return { ok: false, error: err.message };

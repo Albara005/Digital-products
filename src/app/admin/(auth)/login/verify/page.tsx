@@ -53,7 +53,7 @@ export default async function AdminTwoFactorPage() {
           </form>
         </div>
         <p className="mt-4 text-center text-xs leading-relaxed text-muted">
-          فقدت هاتفك؟ اطلب من المدير العام تعطيل التحقق بخطوتين لحسابك من صفحة الفريق.
+          فقدت هاتفك؟ استخدم أحد رموز الاسترداد، أو اطلب من المدير العام تعطيل التحقق بخطوتين لحسابك من صفحة الفريق.
         </p>
       </div>
     </main>

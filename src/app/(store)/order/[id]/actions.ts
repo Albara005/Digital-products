@@ -3,6 +3,8 @@
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { siteUrl } from "@/lib/email";
+import { notifyAdmin } from "@/lib/notify";
 import { MAX_REVIEW_COMMENT, MAX_REVIEW_NAME } from "@/components/store/site";
 import { MAX_TOKEN_LENGTH, ORDER_ID, tokenMatches } from "../../_lib/order-access";
 
@@ -92,6 +94,7 @@ export async function submitReview(_prev: ReviewFormState, formData: FormData): 
         select: {
           id: true,
           deliveredAt: true,
+          productName: true,
           variant: { select: { productId: true } },
           review: { select: { id: true } },
         },
@@ -127,5 +130,9 @@ export async function submitReview(_prev: ReviewFormState, formData: FormData): 
     throw e;
   }
 
+  void notifyAdmin(
+    "review.new",
+    `⭐ تقييم جديد ${rating}/5 على «${item.productName}» بانتظار المراجعة\n${siteUrl()}/admin/reviews`,
+  );
   return { ok: true, message: "شكراً! سيظهر تقييمك بعد المراجعة" };
 }

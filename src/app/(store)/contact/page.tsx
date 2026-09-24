@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { IconArrow, IconChat, IconClock, IconMail } from "@/components/store/icons";
+import { IconArrow, IconChat, IconClock, IconHeadset, IconMail } from "@/components/store/icons";
 import { SUPPORT_EMAIL, WHATSAPP_URL } from "@/components/store/site";
 import { PageHeader } from "@/components/store/ui";
 
@@ -41,6 +41,23 @@ export default function ContactPage() {
         description="فريقنا جاهز لمساعدتك في أي وقت. لتسريع الرد، اذكر رقم الطلب والبريد الذي استخدمته عند الشراء."
       />
       <div className="mx-auto max-w-4xl px-4 pt-10 sm:px-6">
+        <section className="card mb-4 flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-4">
+            <span className="grid size-12 shrink-0 place-items-center rounded-xl bg-volt/10 text-volt ring-1 ring-volt/20">
+              <IconHeadset className="size-6" />
+            </span>
+            <div>
+              <h2 className="text-lg font-bold">تذكرة دعم</h2>
+              <p className="mt-1 text-sm leading-7 text-muted">
+                مشكلة في طلب؟ افتح تذكرة واختر الطلب المعني، وتابع ردودنا من حسابك أو من رابط خاص يصلك بالبريد.
+              </p>
+            </div>
+          </div>
+          <Link href="/support" className="btn-primary shrink-0 self-start sm:self-center">
+            تواصل مع الدعم بخصوص طلب
+            <IconArrow className="size-4" />
+          </Link>
+        </section>
         <ul className="grid gap-4 sm:grid-cols-2">
           {channels.map(({ icon: Icon, title, text, textDir, cta, href, external, primary }) => (
             <li key={title} className="card flex flex-col p-6">

@@ -13,6 +13,7 @@ export type ProductFormVariant = {
   id: string;
   label: string;
   price: string; // dollars, e.g. "9.99"
+  cost: string; // supplier cost in dollars, "" when unknown
   sortOrder: number;
   orders: number;
   stock: number;
@@ -33,7 +34,21 @@ export type ProductFormData = {
   variants: ProductFormVariant[];
 };
 
-type Row = { key: string; id?: string; label: string; price: string; sortOrder: string; orders: number; stock: number };
+type Row = { key: string; id?: string; label: string; price: string; cost: string; sortOrder: string; orders: number; stock: number };
+
+function toCents(v: string): number | null {
+  if (!/^\d{1,6}(\.\d{1,2})?$/.test(v.trim())) return null;
+  const [whole, frac = ""] = v.trim().split(".");
+  return Number(whole) * 100 + Number((frac + "00").slice(0, 2));
+}
+
+/** Gross margin on the price, e.g. price $10, cost $7 -> 30%. Null when either is missing. */
+function marginPct(price: string, cost: string): number | null {
+  const p = toCents(price);
+  const c = cost.trim() === "" ? null : toCents(cost);
+  if (!p || c === null) return null;
+  return Math.round(((p - c) / p) * 1000) / 10;
+}
 
 const TYPES: ProductType[] = ["CARD", "SUBSCRIPTION", "ACCOUNT", "SERVICE"];
 const typeHint: Record<ProductType, string> = {
@@ -94,11 +109,12 @@ function ProductFields({
           id: v.id,
           label: v.label,
           price: v.price,
+          cost: v.cost,
           sortOrder: String(v.sortOrder),
           orders: v.orders,
           stock: v.stock,
         }))
-      : [{ key: "new-0", label: "", price: "", sortOrder: "0", orders: 0, stock: 0 }],
+      : [{ key: "new-0", label: "", price: "", cost: "", sortOrder: "0", orders: 0, stock: 0 }],
   );
   const nextKey = useRef(1);
 
@@ -107,11 +123,11 @@ function ProductFields({
 
   const addRow = () => {
     const key = `new-${nextKey.current++}`;
-    setRows((rs) => [...rs, { key, label: "", price: "", sortOrder: String(rs.length), orders: 0, stock: 0 }]);
+    setRows((rs) => [...rs, { key, label: "", price: "", cost: "", sortOrder: String(rs.length), orders: 0, stock: 0 }]);
   };
 
   const serialized = JSON.stringify(
-    rows.map((r) => ({ id: r.id, label: r.label, price: r.price, sortOrder: r.sortOrder || "0" })),
+    rows.map((r) => ({ id: r.id, label: r.label, price: r.price, cost: r.cost, sortOrder: r.sortOrder || "0" })),
   );
   const err = (k: string) => state?.errors?.[k];
 
@@ -184,7 +200,10 @@ function ProductFields({
               <h2 id="variants-title" className="font-semibold">
                 الخيارات والأسعار
               </h2>
-              <p className="text-xs text-muted">مثل: بطاقة 10$، اشتراك شهر، حساب عادي. السعر بالدولار.</p>
+              <p className="text-xs text-muted">
+                مثل: بطاقة 10$، اشتراك شهر، حساب عادي. السعر بالدولار. التكلفة (اختيارية) هي ما تدفعه للمورّد، وتُستخدم في تقارير
+                الربح ولا تظهر للعملاء.
+              </p>
             </div>
             <button type="button" className={btnSm.ghost} onClick={addRow} disabled={rows.length >= 50}>
               <PlusIcon className="size-3.5" />
@@ -193,14 +212,18 @@ function ProductFields({
           </div>
           <input type="hidden" name="variants" value={serialized} />
 
-          <div className="hidden grid-cols-[minmax(0,1fr)_120px_80px_36px] gap-2 px-1 pb-1.5 text-xs text-muted sm:grid">
+          <div className="hidden grid-cols-[minmax(0,1fr)_110px_110px_72px_36px] gap-2 px-1 pb-1.5 text-xs text-muted sm:grid">
             <span>الاسم</span>
             <span>السعر (USD)</span>
+            <span>التكلفة (USD)</span>
             <span>الترتيب</span>
             <span />
           </div>
           <ul className="flex flex-col gap-3 sm:gap-2">
             {rows.map((r, i) => {
+              const margin = marginPct(r.price, r.cost);
+              const rowError =
+                err(`variants.${i}.label`) ?? err(`variants.${i}.price`) ?? err(`variants.${i}.cost`) ?? err(`variants.${i}.sortOrder`);
               const locked = r.orders > 0 || r.stock > 0;
               const lockReason =
                 r.orders > 0
@@ -210,10 +233,10 @@ function ProductFields({
                     : "";
               return (
                 <li key={r.key} className="rounded-lg border border-border bg-surface-2/40 p-2.5 sm:border-0 sm:bg-transparent sm:p-0">
-                  <div className="grid grid-cols-[minmax(0,1fr)_36px] gap-2 sm:grid-cols-[minmax(0,1fr)_120px_80px_36px]">
+                  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_64px] gap-2 sm:grid-cols-[minmax(0,1fr)_110px_110px_72px_36px]">
                     <input
                       aria-label={`اسم الخيار ${i + 1}`}
-                      className="input"
+                      className="input col-span-2 sm:col-span-1"
                       value={r.label}
                       maxLength={80}
                       placeholder="اسم الخيار"
@@ -241,6 +264,19 @@ function ProductFields({
                         onChange={(e) => update(r.key, { price: e.target.value.replace(/[^\d.]/g, "") })}
                       />
                     </div>
+                    <div className="relative">
+                      <span className="pointer-events-none absolute inset-y-0 left-3 grid place-items-center text-sm text-muted">$</span>
+                      <input
+                        aria-label={`تكلفة الخيار ${i + 1} بالدولار (اختياري)`}
+                        title="التكلفة"
+                        className="input pl-7! text-left font-display"
+                        dir="ltr"
+                        inputMode="decimal"
+                        placeholder="التكلفة"
+                        value={r.cost}
+                        onChange={(e) => update(r.key, { cost: e.target.value.replace(/[^\d.]/g, "") })}
+                      />
+                    </div>
                     <input
                       aria-label={`ترتيب الخيار ${i + 1}`}
                       className="input text-start font-display"
@@ -251,18 +287,19 @@ function ProductFields({
                       onChange={(e) => update(r.key, { sortOrder: e.target.value })}
                     />
                   </div>
-                  {(r.orders > 0 || r.stock > 0) && (
-                    <p className="mt-1 px-1 text-[11px] text-muted">
+                  {(r.orders > 0 || r.stock > 0 || margin !== null) && (
+                    <p className="mt-1 flex flex-wrap gap-x-3 px-1 text-[11px] text-muted">
+                      {margin !== null && (
+                        <span className={margin < 0 ? "text-danger" : margin < 10 ? "text-fuchsia" : "text-success"}>
+                          هامش الربح <span className="font-display" dir="ltr">{margin}%</span>
+                          {margin < 0 && " (التكلفة أعلى من السعر)"}
+                        </span>
+                      )}
                       {r.orders > 0 && <span>{r.orders} طلب سابق</span>}
-                      {r.orders > 0 && r.stock > 0 && " · "}
                       {r.stock > 0 && <span>{r.stock} عنصر في المخزون</span>}
                     </p>
                   )}
-                  {(err(`variants.${i}.label`) || err(`variants.${i}.price`) || err(`variants.${i}.sortOrder`)) && (
-                    <p className="mt-1 px-1 text-xs text-danger">
-                      {err(`variants.${i}.label`) ?? err(`variants.${i}.price`) ?? err(`variants.${i}.sortOrder`)}
-                    </p>
-                  )}
+                  {rowError && <p className="mt-1 px-1 text-xs text-danger">{rowError}</p>}
                 </li>
               );
             })}

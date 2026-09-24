@@ -90,6 +90,10 @@ export function safeNextPath(raw: string | null | undefined, fallback = "/accoun
 }
 
 export const MAX_REVIEW_COMMENT = 1000;
+
+/** Support ticket limits (shared by the forms, the server actions and src/lib/tickets.ts). */
+export const MAX_TICKET_SUBJECT = 120;
+export const MAX_TICKET_BODY = 5000;
 export const MAX_REVIEW_NAME = 40;
 
 /** Public reviewer name derived from an email: "ahmed@x.com" → "ahm***". */

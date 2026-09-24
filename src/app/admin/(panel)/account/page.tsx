@@ -11,12 +11,13 @@ import { CopyButton } from "@/components/admin/CopyButton";
 import { CheckIcon, LogoutIcon, ShieldIcon } from "@/components/admin/icons";
 import { Callout, PageHeader } from "@/components/admin/ui";
 import { isTwoFactorRequired, requireAdminAccess } from "../../_lib/guard";
-import { readTotpSecret } from "../../_lib/two-factor";
+import { RECOVERY_CODE_COUNT, countUnusedRecoveryCodes, readTotpSecret } from "../../_lib/two-factor";
 import {
   cancelTotpSetup,
   changeOwnPassword,
   confirmTotpSetup,
   disableOwnTotp,
+  regenerateRecoveryCodes,
   revokeOtherSessions,
   startTotpSetup,
   updateOwnName,
@@ -39,7 +40,7 @@ function Section({ id, title, description, children }: { id: string; title: stri
   );
 }
 
-export default async function AccountPage() {
+export default async function AccountPage({ searchParams }: PageProps<"/admin/account">) {
   // Reachable without 2FA even when REQUIRE_ADMIN_2FA=true: this is where it gets enabled.
   const session = await requireAdminAccess(undefined, { allowWithoutTwoFactor: true });
 
@@ -48,6 +49,8 @@ export default async function AccountPage() {
     select: { email: true, name: true, role: true, createdAt: true, passwordChangedAt: true, totpSecret: true, totpEnabledAt: true },
   });
   if (!admin) notFound();
+  const { recoveryUsed } = await searchParams;
+  const recoveryLeft = admin.totpEnabledAt ? await countUnusedRecoveryCodes(session.adminId) : 0;
 
   // Setup in progress: the secret exists but no code has confirmed it yet. Shown only in this state.
   let setup: { secret: string; qr: string } | null = null;
@@ -73,6 +76,15 @@ export default async function AccountPage() {
         <div className="mb-6">
           <Callout tone="warn">
             <strong>التحقق بخطوتين إلزامي لأعضاء الفريق.</strong> فعّله أدناه لمتابعة استخدام لوحة التحكم.
+          </Callout>
+        </div>
+      )}
+
+      {recoveryUsed && admin.totpEnabledAt && (
+        <div className="mb-6">
+          <Callout tone={recoveryLeft <= 3 ? "warn" : "info"}>
+            دخلت برمز استرداد، ولم يعد صالحاً. تبقّى لك <strong>{recoveryLeft}</strong> من {RECOVERY_CODE_COUNT}.
+            {recoveryLeft <= 3 && " أنشئ رموزاً جديدة من قسم «رموز الاسترداد» أدناه."}
           </Callout>
         </div>
       )}
@@ -130,13 +142,51 @@ export default async function AccountPage() {
                   </span>
                   <span className="text-muted">منذ {formatDate(admin.totpEnabledAt)}</span>
                 </p>
+                <div className="rounded-lg border border-border px-4 py-3">
+                  <p className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span className="font-medium">رموز الاسترداد</span>
+                    <span
+                      className={`badge ${
+                        recoveryLeft === 0
+                          ? "bg-danger/15 text-danger ring-1 ring-danger/30"
+                          : recoveryLeft <= 3
+                            ? "bg-fuchsia/15 text-fuchsia ring-1 ring-fuchsia/30"
+                            : "bg-surface-2 text-muted ring-1 ring-border"
+                      }`}
+                    >
+                      <span className="font-display">{recoveryLeft}</span>&nbsp;متبقٍّ من {RECOVERY_CODE_COUNT}
+                    </span>
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted">
+                    {recoveryLeft === 0
+                      ? "لا توجد رموز صالحة: إن فقدت هاتفك لن تتمكن من الدخول. أنشئ رموزاً الآن."
+                      : "تُستخدم بدل رمز التطبيق إن فقدت هاتفك، وكل رمز مرة واحدة."}
+                  </p>
+                  <details className="mt-3 border-t border-border pt-3" open={recoveryLeft === 0 ? true : undefined}>
+                    <summary className="cursor-pointer select-none text-sm font-medium text-muted hover:text-text">
+                      إنشاء رموز جديدة
+                    </summary>
+                    <div className="pt-4">
+                      <p className="mb-4 text-xs leading-relaxed text-muted">
+                        تتوقف كل الرموز السابقة فوراً. أدخل رمزاً من التطبيق وكلمة المرور للتأكيد.
+                      </p>
+                      <PasswordAndCodeForm
+                        action={regenerateRecoveryCodes}
+                        idPrefix="recovery"
+                        submitLabel="إنشاء رموز جديدة"
+                        pendingLabel="جارٍ الإنشاء…"
+                        email={admin.email}
+                      />
+                    </div>
+                  </details>
+                </div>
                 <details className="group rounded-lg border border-border">
                   <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted hover:text-text">
                     تعطيل التحقق بخطوتين
                   </summary>
                   <div className="border-t border-border px-4 py-4">
                     <p className="mb-4 text-xs leading-relaxed text-muted">
-                      يصبح حسابك محمياً بكلمة المرور وحدها. أدخل رمزاً من التطبيق وكلمة المرور للتأكيد.
+                      يصبح حسابك محمياً بكلمة المرور وحدها وتُحذف رموز الاسترداد. أدخل رمزاً من التطبيق وكلمة المرور للتأكيد.
                     </p>
                     <PasswordAndCodeForm
                       action={disableOwnTotp}
@@ -180,6 +230,7 @@ export default async function AccountPage() {
                     <p className="mb-3 font-medium">٢. أدخل الرمز الظاهر في التطبيق مع كلمة المرور</p>
                     <PasswordAndCodeForm
                       action={confirmTotpSetup}
+                      email={admin.email}
                       idPrefix="totp-on"
                       submitLabel="تأكيد وتفعيل"
                       pendingLabel="جارٍ التحقق…"

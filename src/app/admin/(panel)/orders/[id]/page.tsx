@@ -60,7 +60,7 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
       refundedAt: true,
       createdAt: true,
       updatedAt: true,
-      customer: { select: { email: true, name: true, createdAt: true, _count: { select: { orders: true } } } },
+      customer: { select: { id: true, email: true, name: true, createdAt: true, _count: { select: { orders: true } } } },
       items: {
         orderBy: { id: "asc" },
         select: {
@@ -352,9 +352,9 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
             <dl className="divide-y divide-border">
               <Row label="البريد">
                 <span className="flex items-center justify-end gap-2">
-                  <span className="break-all" dir="ltr">
+                  <Link href={`/admin/customers/${order.customer.id}`} className="break-all hover:text-volt" dir="ltr">
                     {order.customer.email}
-                  </span>
+                  </Link>
                 </span>
               </Row>
               {order.customer.name && <Row label="الاسم">{order.customer.name}</Row>}

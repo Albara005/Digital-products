@@ -4,14 +4,23 @@ import { redirect } from "next/navigation";
 import type { OrderStatus, WalletTransactionType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { formatPrice, orderStatusLabel } from "@/lib/format";
-import { orderPagePath } from "@/lib/email";
+import { orderPagePath, siteUrl } from "@/lib/email";
 import { getCheckoutOptions } from "@/lib/payments";
+import {
+  REFERRAL_WALLET_NOTE,
+  ensureReferralCode,
+  getReferralSettings,
+  getReferralSummary,
+  referralRuleText,
+  settleReferralRewards,
+} from "@/lib/referrals";
 import { countWalletTransactions, listWalletTransactions } from "@/lib/wallet";
 import { AutoRefresh } from "@/components/store/auto-refresh";
 import {
   IconAlert,
   IconArrow,
   IconBag,
+  IconChat,
   IconCheck,
   IconClock,
   IconGift,
@@ -22,6 +31,7 @@ import {
   IconWallet,
 } from "@/components/store/icons";
 import { LocalTime } from "@/components/store/local-time";
+import { ReferralCard, type ReferralCardData } from "@/components/store/referral-card";
 import { Pager, pageParam } from "@/components/store/pagination";
 import { WALLET_CURRENCY, firstParam } from "@/components/store/site";
 import { type PaymentProviderOption, TopupForm } from "@/components/store/topup-form";
@@ -58,6 +68,28 @@ const txCopy: Record<WalletTransactionType, { label: string; icon: typeof IconWa
 
 const shortId = (id: string) => id.slice(-8).toUpperCase();
 
+/** The "invite your friends" card. A failure here hides the card instead of breaking the page. */
+async function loadReferral(customerId: string): Promise<ReferralCardData | null> {
+  try {
+    // Credits any reward whose order was fulfilled while the credit step failed
+    await settleReferralRewards(customerId);
+    const [settings, code, summary] = await Promise.all([
+      getReferralSettings(),
+      ensureReferralCode(customerId),
+      getReferralSummary(customerId),
+    ]);
+    if (!settings.enabled && summary.invited === 0 && summary.earnedCents === 0) return null;
+    return {
+      link: settings.enabled ? `${siteUrl()}/?ref=${code}` : null,
+      rule: referralRuleText(settings),
+      ...summary,
+    };
+  } catch (err) {
+    console.error("[account] Could not load the referral card", err);
+    return null;
+  }
+}
+
 async function loadCheckoutOptions(): Promise<{ providers: PaymentProviderOption[]; devMode: boolean }> {
   try {
     const options = await getCheckoutOptions();
@@ -78,7 +110,7 @@ export default async function AccountPage({ searchParams }: Props) {
   const walletPage = pageParam(sp.wallet);
   const mine = { customerId: customer.id };
 
-  const [orderCount, orders, txCount, transactions, latestTopup, options] = await Promise.all([
+  const [orderCount, orders, txCount, transactions, latestTopup, options, referral, answeredTickets] = await Promise.all([
     prisma.order.count({ where: mine }),
     prisma.order.findMany({
       where: mine,
@@ -106,6 +138,8 @@ export default async function AccountPage({ searchParams }: Props) {
         })
       : null,
     loadCheckoutOptions(),
+    loadReferral(customer.id),
+    prisma.ticket.count({ where: { ...mine, status: "ANSWERED" } }),
   ]);
 
   // Order links in the wallet history carry access tokens: only this customer's own orders get one.
@@ -139,12 +173,26 @@ export default async function AccountPage({ searchParams }: Props) {
             </span>
           </p>
         </div>
-        <form action={signOutAction}>
-          <button type="submit" className="btn-ghost h-10">
-            <IconLogout className="size-4" />
-            تسجيل الخروج
-          </button>
-        </form>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/account/tickets" className="btn-ghost h-10">
+            <IconChat className="size-4" />
+            تذاكر الدعم
+            {answeredTickets > 0 ? (
+              <span
+                className="rounded-full bg-volt px-1.5 font-display text-[11px] font-bold text-bg"
+                title="تذاكر فيها رد جديد من الدعم"
+              >
+                {answeredTickets}
+              </span>
+            ) : null}
+          </Link>
+          <form action={signOutAction}>
+            <button type="submit" className="btn-ghost h-10">
+              <IconLogout className="size-4" />
+              تسجيل الخروج
+            </button>
+          </form>
+        </div>
       </header>
 
       {topupReturn === "ok" ? (
@@ -199,6 +247,8 @@ export default async function AccountPage({ searchParams }: Props) {
           <TopupForm providers={options.providers} devMode={options.devMode} currency={WALLET_CURRENCY} />
         </section>
       </div>
+
+      {referral ? <ReferralCard data={referral} /> : null}
 
       <section id="orders" aria-labelledby="orders-title" className="mt-12 scroll-mt-32">
         <div className="flex items-end justify-between gap-3">
@@ -326,7 +376,10 @@ export default async function AccountPage({ searchParams }: Props) {
         ) : (
           <ul className="card mt-4 divide-y divide-border overflow-hidden">
             {transactions.map((tx) => {
-              const copy = txCopy[tx.type];
+              const copy =
+                tx.type === "ADJUSTMENT" && tx.note === REFERRAL_WALLET_NOTE
+                  ? { label: "مكافأة إحالة", icon: IconGift }
+                  : txCopy[tx.type];
               const Icon = copy.icon;
               const credit = tx.amountCents >= 0;
               const order = tx.orderId ? txOrderById.get(tx.orderId) : undefined;

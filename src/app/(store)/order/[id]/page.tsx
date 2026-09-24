@@ -406,14 +406,19 @@ export default async function OrderPage({ params, searchParams }: Props) {
 
       <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-4 text-sm">
         <p className="text-muted">
-          تواجه مشكلة في طلبك؟ تواصل معنا واذكر رقم الطلب{" "}
+          تواجه مشكلة في طلبك؟ افتح تذكرة دعم مرتبطة بالطلب{" "}
           <span dir="ltr" className="font-display font-bold text-text">
             #{shortId}
           </span>
         </p>
         <div className="flex gap-2">
-          <Link href="/contact" className="btn-ghost h-9 px-3 text-xs">
-            تواصل مع الدعم
+          {/* The order link travels with its token so a guest's ticket is attached to this order */}
+          <Link
+            href={`/support?order=${encodeURIComponent(order.id)}&token=${encodeURIComponent(token)}`}
+            prefetch={false}
+            className="btn-ghost h-9 px-3 text-xs"
+          >
+            تواصل مع الدعم بخصوص هذا الطلب
           </Link>
           {order.status === "FAILED" ? (
             <Link href="/cart" className="btn-primary h-9 px-3 text-xs">
