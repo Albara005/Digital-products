@@ -1,4 +1,5 @@
 import "server-only";
+import { mailProvider, sendMail } from "@/lib/mailer";
 import { createHash, timingSafeEqual } from "crypto";
 import type { TicketStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -220,10 +221,9 @@ async function sendTicketEmail({
   try {
     const c = emailCopy(locale);
     const link = ticketUrl(ticket, locale);
-    const apiKey = process.env.RESEND_API_KEY?.trim();
     const shortId = shortTicketId(ticket.id);
-    if (!apiKey) {
-      console.info(`[email] RESEND_API_KEY not set. Ticket ${kind} email for #${shortId} (${ticket.email}): ${link}`);
+    if (!mailProvider()) {
+      console.info(`[email] No email provider configured. Ticket ${kind} email for #${shortId} (${ticket.email}): ${link}`);
       return;
     }
 
@@ -261,22 +261,7 @@ async function sendTicketEmail({
 </html>`;
     const text = [c.ticket.hello, leadText, `${c.ticket.subjectLabel} ${ticket.subject}`, c.ticket.textRead, link, c.private].join("\n");
 
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
-      body: JSON.stringify({
-        from: process.env.EMAIL_FROM?.trim() || "Nitro Store <onboarding@resend.dev>",
-        to: [ticket.email],
-        subject,
-        html,
-        text,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error(`[email] Resend rejected ticket ${kind} email for ${ticket.id}: ${res.status} ${body.slice(0, 300)}`);
-    }
+    await sendMail({ to: ticket.email, subject, html, text, idempotencyKey });
   } catch (err) {
     console.error(`[email] Failed to send ticket ${kind} email for ${ticket.id}:`, err);
   }

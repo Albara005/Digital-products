@@ -1,4 +1,5 @@
 import "server-only";
+import { mailProvider, sendMail } from "@/lib/mailer";
 import { prisma } from "@/lib/prisma";
 import { formatPrice } from "@/lib/format";
 import { type Locale, localized, localizePath } from "@/i18n/config";
@@ -59,9 +60,8 @@ export async function sendOrderDeliveredEmail(orderId: string, locale?: Locale):
     }
 
     const link = orderPageUrl(order, lang);
-    const apiKey = process.env.RESEND_API_KEY?.trim();
-    if (!apiKey) {
-      console.info(`[email] RESEND_API_KEY not set. Delivery link for order ${order.id} (${order.customer.email}): ${link}`);
+    if (!mailProvider()) {
+      console.info(`[email] No email provider configured. Delivery link for order ${order.id} (${order.customer.email}): ${link}`);
       return;
     }
 
@@ -123,27 +123,8 @@ export async function sendOrderDeliveredEmail(orderId: string, locale?: Locale):
       c.order.private,
     ].join("\n");
 
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        // Resend drops duplicates with the same key, a second guard against double emails
-        "Idempotency-Key": `order-delivered-${order.id}`,
-      },
-      body: JSON.stringify({
-        from: process.env.EMAIL_FROM?.trim() || "Nitro Store <onboarding@resend.dev>",
-        to: [order.customer.email],
-        subject,
-        html,
-        text,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error(`[email] Resend rejected delivery email for order ${order.id}: ${res.status} ${body.slice(0, 500)}`);
-    }
+    // The idempotency key guards against double emails (Resend only)
+    await sendMail({ to: order.customer.email, subject, html, text, idempotencyKey: `order-delivered-${order.id}` });
   } catch (err) {
     console.error(`[email] Failed to send delivery email for order ${orderId}:`, err);
   }
@@ -152,9 +133,8 @@ export async function sendOrderDeliveredEmail(orderId: string, locale?: Locale):
 /** Sign-in code for customer accounts. Returns false if sending failed so the caller can tell the user. */
 export async function sendSignInCodeEmail(email: string, code: string, locale: Locale = "ar"): Promise<boolean> {
   const c = emailCopy(locale);
-  const apiKey = process.env.RESEND_API_KEY?.trim();
-  if (!apiKey) {
-    console.info(`[email] RESEND_API_KEY not set. Sign-in code for ${email}: ${code}`);
+  if (!mailProvider()) {
+    console.info(`[email] No email provider configured. Sign-in code for ${email}: ${code}`);
     return true;
   }
   const subject = c.code.subject(code);
@@ -176,26 +156,5 @@ export async function sendSignInCodeEmail(email: string, code: string, locale: L
   </table>
 </body>
 </html>`;
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: process.env.EMAIL_FROM?.trim() || "Nitro Store <onboarding@resend.dev>",
-        to: [email],
-        subject,
-        html,
-        text: c.code.text(code),
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) {
-      console.error(`[email] Resend rejected sign-in code for ${email}: ${res.status} ${(await res.text().catch(() => "")).slice(0, 300)}`);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error(`[email] Failed to send sign-in code to ${email}:`, err);
-    return false;
-  }
+  return (await sendMail({ to: email, subject, html, text: c.code.text(code) })) !== "failed";
 }

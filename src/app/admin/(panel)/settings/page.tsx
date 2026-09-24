@@ -26,7 +26,17 @@ function integrations(): Integration[] {
       warning: stripe && !has("STRIPE_WEBHOOK_SECRET") ? "STRIPE_WEBHOOK_SECRET غير مضبوط: لن تُؤكَّد المدفوعات تلقائياً." : undefined,
     },
     { name: "Tap", on: has("TAP_SECRET_KEY"), description: "مدى وKNET وApple Pay والبطاقات الخليجية (TAP_SECRET_KEY)." },
-    { name: "Resend", on: has("RESEND_API_KEY"), description: "إرسال رسائل التسليم ورموز الدخول بالبريد (RESEND_API_KEY)." },
+    {
+      name: "البريد الإلكتروني",
+      on: has("RESEND_API_KEY") || (has("SMTP_HOST") && has("SMTP_USER") && has("SMTP_PASS")),
+      description: has("RESEND_API_KEY")
+        ? "يُرسل عبر Resend: رموز الدخول ورسائل التسليم والتذاكر."
+        : "رموز الدخول ورسائل التسليم والتذاكر عبر Resend (RESEND_API_KEY) أو Gmail (SMTP_HOST و SMTP_USER و SMTP_PASS).",
+      warning:
+        !has("RESEND_API_KEY") && !(has("SMTP_HOST") && has("SMTP_USER") && has("SMTP_PASS"))
+          ? "غير مضبوط: رموز الدخول لا تصل للعملاء، وتظهر فقط في سجلات الخادم."
+          : undefined,
+    },
     {
       name: "Telegram",
       on: has("TELEGRAM_BOT_TOKEN") && has("TELEGRAM_CHAT_ID"),
