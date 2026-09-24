@@ -1,8 +1,9 @@
-import Link from "next/link";
+import { getDictionary } from "@/i18n/server";
+import Link from "./link";
 import { PageHeader } from "./ui";
 
 /** Layout for static text pages (terms, policies). */
-export function ContentPage({
+export async function ContentPage({
   eyebrow,
   title,
   description,
@@ -13,6 +14,7 @@ export function ContentPage({
   description?: string;
   children: React.ReactNode;
 }) {
+  const t = await getDictionary();
   return (
     <>
       <PageHeader eyebrow={eyebrow} title={title} description={description} />
@@ -20,13 +22,13 @@ export function ContentPage({
         <article className="max-w-3xl space-y-10">{children}</article>
         <aside className="lg:sticky lg:top-32 lg:self-start">
           <div className="card p-5">
-            <p className="text-sm font-bold">صفحات ذات صلة</p>
+            <p className="text-sm font-bold">{t.content.related}</p>
             <ul className="mt-3 space-y-2 text-sm">
               {[
-                { href: "/faq", label: "الأسئلة الشائعة" },
-                { href: "/terms", label: "الشروط والأحكام" },
-                { href: "/refund-policy", label: "سياسة الاسترجاع" },
-                { href: "/contact", label: "تواصل معنا" },
+                { href: "/faq", label: t.footer.faq },
+                { href: "/terms", label: t.footer.terms },
+                { href: "/refund-policy", label: t.footer.refund },
+                { href: "/contact", label: t.footer.contact },
               ].map((l) => (
                 <li key={l.href}>
                   <Link href={l.href} className="text-muted transition hover:text-volt">

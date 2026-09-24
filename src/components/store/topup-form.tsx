@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useId, useState, useSyncExternalStore } from "react";
+import { useLocale, useLocalePath, useT } from "@/i18n/client";
+import { LOCALE_HEADER } from "@/i18n/config";
 import { formatPrice } from "@/lib/format";
 import { IconAlert, IconCard, IconLock, IconSpinner, IconWallet } from "./icons";
 import { latinDigits } from "./site";
@@ -13,8 +15,6 @@ const PRESETS = [1000, 2500, 5000, 10000];
 const MIN_CENTS = 500;
 const MAX_CENTS = 50000;
 const noopSubscribe = () => () => {};
-/** LTR isolate so "$5.00" keeps its shape inside an Arabic sentence. */
-const ltr = (text: string) => `\u2066${text}\u2069`;
 
 export function TopupForm({
   providers,
@@ -27,6 +27,9 @@ export function TopupForm({
 }) {
   const id = useId();
   const router = useRouter();
+  const t = useT();
+  const locale = useLocale();
+  const localePath = useLocalePath();
   const [choice, setChoice] = useState<number | "custom">(2500);
   const [custom, setCustom] = useState("");
   const [provider, setProvider] = useState(providers[0]?.id);
@@ -36,33 +39,33 @@ export function TopupForm({
   // The form posts with fetch; until hydration a click would fall back to a native GET.
   const hydrated = useSyncExternalStore(noopSubscribe, () => true, () => false);
 
-  const rangeText = `بين ${ltr(formatPrice(MIN_CENTS, currency))} و${ltr(formatPrice(MAX_CENTS, currency))}`;
+  const rangeText = t.topup.range(formatPrice(MIN_CENTS, currency), formatPrice(MAX_CENTS, currency));
   const customCents = custom ? Number(custom) * 100 : 0;
   const amountCents = choice === "custom" ? customCents : choice;
   const amountValid = Number.isSafeInteger(amountCents) && amountCents >= MIN_CENTS && amountCents <= MAX_CENTS;
   const unavailable = providers.length === 0 && !devMode;
   const customError =
     choice === "custom" && custom !== "" && !amountValid
-      ? `أدخل مبلغاً ${rangeText}.`
+      ? t.topup.enterAmount(rangeText)
       : null;
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     if (!amountValid || unavailable || submitting) {
-      if (!amountValid) setError(`اختر مبلغاً ${rangeText}.`);
+      if (!amountValid) setError(t.topup.chooseAmount(rangeText));
       return;
     }
     setSubmitting(true);
     try {
       const res = await fetch("/api/wallet/topup", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", [LOCALE_HEADER]: locale },
         body: JSON.stringify({ amountCents, ...(provider ? { provider } : {}) }),
       });
       if (res.status === 401) {
         // Session expired since the page loaded.
-        router.push("/login?next=/account");
+        router.push(localePath("/login?next=/account"));
         return;
       }
       const data: unknown = await res.json().catch(() => null);
@@ -75,9 +78,9 @@ export function TopupForm({
           return;
         }
       }
-      setError(typeof body.error === "string" && body.error ? body.error : "تعذّر بدء عملية الشحن، حاول مرة أخرى.");
+      setError(typeof body.error === "string" && body.error ? body.error : t.topup.failed);
     } catch {
-      setError("تعذّر الاتصال بالخادم. تحقّق من اتصالك وحاول مرة أخرى.");
+      setError(t.topup.network);
     }
     setSubmitting(false);
   }
@@ -86,8 +89,8 @@ export function TopupForm({
     return (
       <div className="flex flex-col items-center gap-3 py-10 text-center" role="status">
         <IconSpinner className="size-7 text-volt" />
-        <p className="font-bold">جارٍ تحويلك لإتمام الدفع…</p>
-        <p className="text-sm text-muted">لا تغلق هذه الصفحة.</p>
+        <p className="font-bold">{t.topup.redirecting}</p>
+        <p className="text-sm text-muted">{t.topup.dontClose}</p>
       </div>
     );
   }
@@ -102,7 +105,7 @@ export function TopupForm({
   return (
     <form onSubmit={submit} className="space-y-5" noValidate>
       <fieldset disabled={unavailable || submitting}>
-        <legend className="mb-3 text-sm font-bold">اختر المبلغ</legend>
+        <legend className="mb-3 text-sm font-bold">{t.topup.amountLegend}</legend>
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
           {PRESETS.map((cents) => (
             <label key={cents} className={chip(choice === cents)}>
@@ -128,14 +131,14 @@ export function TopupForm({
               onChange={() => setChoice("custom")}
               className="sr-only"
             />
-            مبلغ آخر
+            {t.topup.other}
           </label>
         </div>
 
         {choice === "custom" ? (
           <div className="mt-3">
             <label htmlFor={`${id}-custom`} className="label">
-              المبلغ بالدولار (من 5 إلى 500)
+              {t.topup.customLabel}
             </label>
             <div className="relative">
               <span
@@ -170,7 +173,7 @@ export function TopupForm({
 
       {providers.length > 1 ? (
         <fieldset disabled={submitting}>
-          <legend className="mb-3 text-sm font-bold">طريقة الدفع</legend>
+          <legend className="mb-3 text-sm font-bold">{t.topup.paymentMethod}</legend>
           <div className="grid grid-cols-2 gap-2">
             {providers.map((p) => (
               <label key={p.id} className={`${chip(provider === p.id)} gap-2 px-3`}>
@@ -193,7 +196,7 @@ export function TopupForm({
       {unavailable ? (
         <p className="flex items-start gap-2 rounded-lg border border-volt/30 bg-volt/10 p-3 text-sm text-volt">
           <IconAlert className="mt-0.5 size-4 shrink-0" />
-          شحن الرصيد غير متاح حالياً. حاول لاحقاً أو تواصل مع الدعم.
+          {t.topup.unavailable}
         </p>
       ) : null}
 
@@ -212,25 +215,25 @@ export function TopupForm({
         {submitting ? (
           <>
             <IconSpinner className="size-4" />
-            جارٍ التحويل…
+            {t.topup.submitting}
           </>
         ) : (
           <>
             <IconWallet className="size-4" />
-            شحن{" "}
+            {t.topup.topUp}{" "}
             {amountValid ? (
               <span dir="ltr" className="font-display tabular-nums">
                 {formatPrice(amountCents, currency)}
               </span>
             ) : (
-              "الرصيد"
+              t.topup.balance
             )}
           </>
         )}
       </button>
       <p className="flex items-center justify-center gap-1.5 text-center text-xs text-muted">
         <IconLock className="size-3.5" />
-        دفع آمن عبر بوابة مشفّرة، ويُضاف الرصيد فور تأكيد الدفع.
+        {t.topup.secure}
       </p>
     </form>
   );

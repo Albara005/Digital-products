@@ -1,11 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 import { type CheckoutQuote, getCartLines, quoteCheckout } from "@/app/(store)/cart/actions";
+import { type ClientDictionary } from "@/i18n/ar/client";
+import { useLocale, useT } from "@/i18n/client";
+import { LOCALE_HEADER } from "@/i18n/config";
 import type { CartItem, CartLineInfo } from "@/lib/cart";
 import { formatPrice } from "@/lib/format";
 import { useCart } from "./cart-provider";
+import { Approx, useApprox } from "./currency";
 import {
   IconAlert,
   IconBag,
@@ -22,6 +25,7 @@ import {
   IconWallet,
   IconX,
 } from "./icons";
+import Link from "./link";
 import { ProductMedia } from "./product-media";
 import { WALLET_CURRENCY, productHref } from "./site";
 import type { PaymentProviderOption } from "./topup-form";
@@ -29,10 +33,10 @@ import { EmptyState, TypeBadge } from "./ui";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
 
-function validateEmail(value: string): string | null {
+function validateEmail(value: string, t: ClientDictionary): string | null {
   const email = value.trim();
-  if (!email) return "أدخل بريدك الإلكتروني لاستلام الطلب.";
-  if (email.length > 254 || !EMAIL_RE.test(email)) return "صيغة البريد الإلكتروني غير صحيحة.";
+  if (!email) return t.cart.emailRequired;
+  if (email.length > 254 || !EMAIL_RE.test(email)) return t.cart.emailInvalid;
   return null;
 }
 
@@ -57,6 +61,9 @@ export function CartView({
 }) {
   const cart = useCart();
   const uid = useId();
+  const t = useT();
+  const locale = useLocale();
+  const approx = useApprox();
   const [info, setInfo] = useState<LineInfoMap>({});
   const [loadError, setLoadError] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -163,8 +170,8 @@ export function CartView({
     return (
       <div className="card mt-8 flex flex-col items-center gap-3 px-6 py-16 text-center">
         <IconSpinner className="size-8 text-volt" />
-        <p className="font-bold">جارٍ تحويلك لإتمام الطلب…</p>
-        <p className="text-sm text-muted">لا تغلق هذه الصفحة.</p>
+        <p className="font-bold">{t.cart.redirecting}</p>
+        <p className="text-sm text-muted">{t.cart.dontClose}</p>
       </div>
     );
   }
@@ -176,11 +183,11 @@ export function CartView({
       <div className="mt-8">
         <EmptyState
           icon={<IconBag className="size-7" />}
-          title="سلتك فارغة"
-          description="تصفّح الأقسام وأضف ما يعجبك — التسليم فوري بعد الدفع."
+          title={t.cart.emptyTitle}
+          description={t.cart.emptyText}
         >
           <Link href="/" className="btn-primary">
-            ابدأ التسوّق
+            {t.cart.startShopping}
           </Link>
         </EmptyState>
       </div>
@@ -192,7 +199,7 @@ export function CartView({
   const q = current?.result?.ok ? current.result : null;
   const quoteError = current
     ? current.result === null
-      ? "تعذّر حساب الإجمالي النهائي الآن، وسيُحسب عند إتمام الطلب."
+      ? t.cart.quoteFailed
       : current.result.ok
         ? null
         : current.result.error
@@ -206,7 +213,7 @@ export function CartView({
   const paidInFull = amountDue === 0;
   const showProviders = providers.length > 1 && !paidInFull;
 
-  const emailError = account ? null : validateEmail(email);
+  const emailError = account ? null : validateEmail(email, t);
   const showEmailError = emailTouched && emailError;
   const canCheckout =
     !loading && !loadError && !blocked && !mixedCurrency && priced.length > 0 && !submitting && !quoting;
@@ -236,7 +243,7 @@ export function CartView({
     try {
       const res = await fetch("/api/checkout", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", [LOCALE_HEADER]: locale },
         body: JSON.stringify({
           // Signed in: the server uses the account email from the session.
           ...(account ? {} : { email: email.trim() }),
@@ -260,12 +267,12 @@ export function CartView({
       }
 
       setCheckoutError(
-        typeof body.error === "string" && body.error ? body.error : "تعذّر بدء عملية الدفع، حاول مرة أخرى.",
+        typeof body.error === "string" && body.error ? body.error : t.cart.checkoutFailed,
       );
       // Stock or availability changed since the cart was priced: reload fresh data.
       if (res.status === 400 || res.status === 409) setInfo({});
     } catch {
-      setCheckoutError("تعذّر الاتصال بالخادم. تحقّق من اتصالك وحاول مرة أخرى.");
+      setCheckoutError(t.cart.network);
     }
     setSubmitting(false);
   }
@@ -273,19 +280,22 @@ export function CartView({
   const money = (cents: number) => formatPrice(cents, currency);
   const pending = <span className="inline-block h-5 w-16 animate-pulse rounded bg-surface-2 align-middle" />;
   const localSubtotal = totals.get(currency) ?? 0;
+  // What the gateway will charge, in USD; shown whenever a local display currency is selected.
+  const chargeCents = amountDue ?? (mixedCurrency ? null : localSubtotal);
+  const showUsdNote = chargeCents !== null && chargeCents > 0 && approx(chargeCents, currency) !== null;
 
   return (
     <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
-      <section aria-label="المنتجات في السلة">
+      <section aria-label={t.cart.itemsLabel}>
         {loadError ? (
           <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/40 bg-danger/10 p-4 text-sm text-danger">
             <span className="flex items-center gap-2">
               <IconAlert className="size-4" />
-              تعذّر تحميل أحدث الأسعار والمخزون.
+              {t.cart.loadFailed}
             </span>
             <button type="button" onClick={() => setAttempt((n) => n + 1)} className="btn-danger px-3 py-1.5">
               <IconRefresh className="size-4" />
-              إعادة المحاولة
+              {t.cart.retry}
             </button>
           </div>
         ) : null}
@@ -296,9 +306,10 @@ export function CartView({
               {line === undefined ? (
                 <LineSkeleton />
               ) : line === null ? (
-                <UnavailableLine onRemove={() => cart.remove(item.variantId)} />
+                <UnavailableLine t={t} onRemove={() => cart.remove(item.variantId)} />
               ) : (
                 <CartLine
+                  t={t}
                   item={item}
                   line={line}
                   onChange={(q) => cart.setQuantity(item.variantId, q, line.maxQuantity)}
@@ -310,12 +321,12 @@ export function CartView({
         </ul>
 
         <Link href="/" className="mt-5 inline-block text-sm text-muted transition hover:text-volt">
-          → متابعة التسوّق
+          {t.cart.continueShopping}
         </Link>
       </section>
 
       <aside className="card p-5 sm:p-6 lg:sticky lg:top-32">
-        <h2 className="text-lg font-bold">ملخص الطلب</h2>
+        <h2 className="text-lg font-bold">{t.cart.summary}</h2>
 
         {/* Coupon: its own form so Enter applies the code instead of checking out. */}
         <div className="mt-5 border-b border-border pb-5">
@@ -334,7 +345,7 @@ export function CartView({
                 type="button"
                 onClick={removeCoupon}
                 disabled={submitting}
-                aria-label={`إزالة كود الخصم ${q.coupon.code}`}
+                aria-label={t.cart.removeCoupon(q.coupon.code)}
                 className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-danger/10 hover:text-danger"
               >
                 <IconX className="size-4" />
@@ -343,7 +354,7 @@ export function CartView({
           ) : couponOpen || appliedCoupon ? (
             <form onSubmit={applyCoupon} noValidate>
               <label htmlFor={`${uid}-coupon`} className="label">
-                كود الخصم
+                {t.cart.couponLabel}
               </label>
               <div className="flex gap-2">
                 <input
@@ -371,7 +382,7 @@ export function CartView({
                   disabled={!couponInput.trim() || (!!appliedCoupon && quoting) || submitting}
                   className="btn-ghost h-11 shrink-0 px-4"
                 >
-                  {appliedCoupon && quoting ? <IconSpinner className="size-4" /> : "تطبيق"}
+                  {appliedCoupon && quoting ? <IconSpinner className="size-4" /> : t.cart.apply}
                 </button>
               </div>
               {couponError ? (
@@ -387,7 +398,7 @@ export function CartView({
               className="flex items-center gap-2 text-sm font-semibold text-volt transition hover:text-volt-dim"
             >
               <IconTag className="size-4" />
-              لديك كود خصم؟
+              {t.cart.haveCoupon}
             </button>
           )}
         </div>
@@ -399,9 +410,9 @@ export function CartView({
                 <IconWallet className="size-4" />
               </span>
               <span className="min-w-0">
-                <span className="block text-sm font-semibold">استخدم رصيد المحفظة</span>
+                <span className="block text-sm font-semibold">{t.cart.useWallet}</span>
                 <span className="block text-xs text-muted">
-                  المتاح{" "}
+                  {t.cart.available}{" "}
                   <span dir="ltr" className="font-display font-bold text-text tabular-nums">
                     {formatPrice(walletBalance, WALLET_CURRENCY)}
                   </span>
@@ -425,14 +436,14 @@ export function CartView({
 
         <dl className="mt-5 space-y-3 text-sm">
           <div className="flex items-center justify-between">
-            <dt className="text-muted">عدد المنتجات</dt>
+            <dt className="text-muted">{t.cart.units}</dt>
             <dd dir="ltr" className="font-display font-bold">
               {loading ? "…" : units}
             </dd>
           </div>
           {mixedCurrency ? null : (
             <div className="flex items-center justify-between">
-              <dt className="text-muted">المجموع الفرعي</dt>
+              <dt className="text-muted">{t.cart.subtotal}</dt>
               <dd dir="ltr" className="font-display font-bold tabular-nums">
                 {loading ? pending : money(q?.subtotalCents ?? localSubtotal)}
               </dd>
@@ -441,7 +452,7 @@ export function CartView({
           {q && q.discountCents > 0 ? (
             <div className="flex items-center justify-between text-success">
               <dt>
-                الخصم
+                {t.cart.discount}
                 {q.coupon ? (
                   <>
                     {" "}
@@ -459,7 +470,7 @@ export function CartView({
           ) : null}
           {q && q.walletAppliedCents > 0 ? (
             <div className="flex items-center justify-between text-volt">
-              <dt>من رصيد المحفظة</dt>
+              <dt>{t.cart.fromWallet}</dt>
               <dd dir="ltr" className="font-display font-bold tabular-nums">
                 {"\u2212"}
                 {money(q.walletAppliedCents)}
@@ -467,7 +478,7 @@ export function CartView({
             </div>
           ) : null}
           <div className="flex items-center justify-between border-t border-border pt-3">
-            <dt className="font-bold">{q && (q.discountCents > 0 || q.walletAppliedCents > 0) ? "المبلغ المستحق" : "المجموع"}</dt>
+            <dt className="font-bold">{q && (q.discountCents > 0 || q.walletAppliedCents > 0) ? t.cart.amountDue : t.cart.total}</dt>
             <dd className="text-end">
               {loading || quoting ? (
                 <span className="inline-block h-7 w-24 animate-pulse rounded bg-surface-2" />
@@ -480,9 +491,12 @@ export function CartView({
                   </span>
                 ))
               ) : (
-                <span dir="ltr" className="block font-display text-2xl font-bold text-volt tabular-nums">
-                  {money(amountDue)}
-                </span>
+                <>
+                  <span dir="ltr" className="block font-display text-2xl font-bold text-volt tabular-nums">
+                    {money(amountDue)}
+                  </span>
+                  <Approx cents={amountDue} currency={currency} className="block text-sm" />
+                </>
               )}
             </dd>
           </div>
@@ -491,19 +505,19 @@ export function CartView({
         <form onSubmit={checkout} noValidate className="mt-6 space-y-4">
           {account ? (
             <div>
-              <p className="label">البريد الإلكتروني</p>
+              <p className="label">{t.cart.email}</p>
               <div className="flex h-11 items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 text-sm">
                 <IconUser className="size-4 shrink-0 text-volt" />
                 <bdi dir="ltr" className="min-w-0 truncate">
                   {account.email}
                 </bdi>
               </div>
-              <p className="mt-1.5 text-xs text-muted">يُحفظ الطلب في حسابك ونرسل رابطه إلى بريدك.</p>
+              <p className="mt-1.5 text-xs text-muted">{t.cart.accountEmailNote}</p>
             </div>
           ) : (
             <div>
               <label htmlFor="checkout-email" className="label">
-                البريد الإلكتروني
+                {t.cart.email}
               </label>
               <input
                 id="checkout-email"
@@ -522,24 +536,24 @@ export function CartView({
                 className={`input h-11 text-start ${showEmailError ? "border-danger focus:border-danger" : ""}`}
               />
               <p id="checkout-email-hint" className={`mt-1.5 text-xs ${showEmailError ? "text-danger" : "text-muted"}`}>
-                {showEmailError ? emailError : "سنرسل رابط طلبك إلى هذا البريد."}
+                {showEmailError ? emailError : t.cart.guestEmailNote}
               </p>
               <p className="mt-2 text-xs text-muted">
-                لديك حساب؟{" "}
+                {t.cart.haveAccount}{" "}
                 <Link
                   href="/login?next=/cart"
                   className="font-semibold text-volt underline decoration-volt/30 underline-offset-4 hover:decoration-volt"
                 >
-                  سجّل الدخول
+                  {t.cart.signIn}
                 </Link>{" "}
-                لتتبّع طلباتك والدفع من رصيدك.
+                {t.cart.signInPerks}
               </p>
             </div>
           )}
 
           {showProviders ? (
             <fieldset disabled={submitting}>
-              <legend className="label">طريقة الدفع</legend>
+              <legend className="label">{t.cart.paymentMethod}</legend>
               <div className="grid grid-cols-2 gap-2">
                 {providers.map((p) => (
                   <label
@@ -567,9 +581,9 @@ export function CartView({
           ) : null}
 
           {blocked ? (
-            <Notice>بعض المنتجات لم تعد متوفرة. احذفها من السلة للمتابعة.</Notice>
+            <Notice>{t.cart.blocked}</Notice>
           ) : mixedCurrency ? (
-            <Notice>لا يمكن الدفع لمنتجات بعملات مختلفة في طلب واحد. أكمل كل عملة في طلب منفصل.</Notice>
+            <Notice>{t.cart.mixedCurrency}</Notice>
           ) : quoteError ? (
             <Notice>{quoteError}</Notice>
           ) : null}
@@ -585,44 +599,51 @@ export function CartView({
             {submitting ? (
               <>
                 <IconSpinner className="size-4" />
-                جارٍ التحويل…
+                {t.cart.submitting}
               </>
             ) : paidInFull && q && q.walletAppliedCents > 0 ? (
               <>
                 <IconWallet className="size-4" />
-                إتمام الطلب بالرصيد
+                {t.cart.payWithWallet}
               </>
             ) : paidInFull ? (
               <>
                 <IconCheck className="size-4" />
-                إتمام الطلب
+                {t.cart.complete}
               </>
             ) : (
               <>
                 <IconLock className="size-4" />
-                إتمام الطلب والدفع
+                {t.cart.completeAndPay}
               </>
             )}
           </button>
 
+          {showUsdNote && chargeCents !== null ? (
+            <p className="flex items-start gap-2 rounded-lg border border-border bg-surface-2 p-3 text-xs leading-6 text-muted">
+              <IconCard className="mt-1 size-3.5 shrink-0 text-volt" />
+              <span>{t.cart.chargedInUsd(formatPrice(chargeCents, currency))}</span>
+            </p>
+          ) : null}
+
           {devMode && !paidInFull ? (
             <p className="rounded-lg border border-dashed border-volt/40 p-2 text-center text-xs text-volt">
-              وضع التجربة: لن يُخصم أي مبلغ حقيقي.
+              {t.cart.devMode}
             </p>
           ) : null}
 
           <p className="text-center text-xs leading-6 text-muted">
-            {hasManual ? "الخدمات تُنفَّذ يدوياً بعد الدفع. " : "يصلك طلبك فوراً بعد تأكيد الدفع. "}
-            بإتمام الطلب فإنك توافق على{" "}
+            {hasManual ? t.cart.manualNote : t.cart.instantNote}
+            {t.cart.agree}{" "}
             <Link href="/terms" className="text-text underline decoration-border underline-offset-4 hover:decoration-volt">
-              الشروط والأحكام
+              {t.cart.terms}
             </Link>{" "}
-            و
+            {t.cart.and}
             <Link
               href="/refund-policy"
               className="text-text underline decoration-border underline-offset-4 hover:decoration-volt"
             >
-              سياسة الاسترجاع
+              {t.cart.refundPolicy}
             </Link>
             .
           </p>
@@ -642,11 +663,13 @@ function Notice({ children }: { children: React.ReactNode }) {
 }
 
 function CartLine({
+  t,
   item,
   line,
   onChange,
   onRemove,
 }: {
+  t: ClientDictionary;
   item: CartItem;
   line: CartLineInfo;
   onChange: (quantity: number) => void;
@@ -683,12 +706,13 @@ function CartLine({
               <span dir="ltr" className="font-display tabular-nums">
                 {formatPrice(line.unitPriceCents, line.currency)}
               </span>
+              <Approx cents={line.unitPriceCents} currency={line.currency} />
             </div>
           </div>
           <button
             type="button"
             onClick={onRemove}
-            aria-label={`حذف ${line.productName} من السلة`}
+            aria-label={t.cart.removeItem(line.productName)}
             className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-danger/10 hover:text-danger"
           >
             <IconTrash className="size-4" />
@@ -697,19 +721,19 @@ function CartLine({
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           {soldOut ? (
-            <p className="text-sm font-semibold text-danger">نفدت الكمية</p>
+            <p className="text-sm font-semibold text-danger">{t.stock.out}</p>
           ) : (
             <div className="flex items-center gap-3">
               <div
                 role="group"
-                aria-label={`كمية ${line.productName}`}
-                className="flex h-9 items-center rounded-lg border border-border bg-surface-2"
+                aria-label={t.cart.lineQuantity(line.productName)}
+                className="flex h-9 items-center rounded-lg border border-border bg-surface-2 ltr:flex-row-reverse"
               >
                 <button
                   type="button"
                   onClick={() => onChange(qty + 1)}
                   disabled={atMax}
-                  aria-label="زيادة الكمية"
+                  aria-label={t.purchase.increase}
                   className="grid h-full w-9 place-items-center transition hover:text-volt disabled:opacity-30"
                 >
                   <IconPlus className="size-3.5" />
@@ -721,14 +745,14 @@ function CartLine({
                   type="button"
                   onClick={() => onChange(qty - 1)}
                   disabled={qty <= 1}
-                  aria-label="إنقاص الكمية"
+                  aria-label={t.purchase.decrease}
                   className="grid h-full w-9 place-items-center transition hover:text-volt disabled:opacity-30"
                 >
                   <IconMinus className="size-3.5" />
                 </button>
               </div>
               {atMax && !line.manualDelivery ? (
-                <span className="text-xs text-muted">المتوفر: {line.maxQuantity}</span>
+                <span className="text-xs text-muted">{t.cart.inStock(line.maxQuantity)}</span>
               ) : null}
             </div>
           )}
@@ -741,19 +765,19 @@ function CartLine({
   );
 }
 
-function UnavailableLine({ onRemove }: { onRemove: () => void }) {
+function UnavailableLine({ t, onRemove }: { t: ClientDictionary; onRemove: () => void }) {
   return (
     <div className="card flex items-center justify-between gap-3 border-danger/40 p-4">
       <div className="flex items-center gap-3 text-sm">
         <IconAlert className="size-5 shrink-0 text-danger" />
         <span>
-          <span className="block font-semibold">منتج لم يعد متاحاً</span>
-          <span className="text-muted">تم إيقاف هذا المنتج أو تغييره.</span>
+          <span className="block font-semibold">{t.cart.unavailableTitle}</span>
+          <span className="text-muted">{t.cart.unavailableText}</span>
         </span>
       </div>
       <button type="button" onClick={onRemove} className="btn-danger px-3 py-1.5">
         <IconTrash className="size-4" />
-        حذف
+        {t.cart.remove}
       </button>
     </div>
   );
@@ -773,8 +797,9 @@ function LineSkeleton() {
 }
 
 function CartSkeleton() {
+  const t = useT();
   return (
-    <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]" aria-busy="true" aria-label="جارٍ تحميل السلة">
+    <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]" aria-busy="true" aria-label={t.cart.loading}>
       <div className="space-y-3">
         <LineSkeleton />
         <LineSkeleton />

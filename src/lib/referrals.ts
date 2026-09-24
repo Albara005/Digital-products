@@ -3,7 +3,6 @@ import { randomInt } from "crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSetting } from "@/lib/settings";
-import { formatPrice } from "@/lib/format";
 import { WALLET_CURRENCY, creditWallet } from "@/lib/wallet";
 
 /*
@@ -64,16 +63,6 @@ export function computeRewardCents(totalCents: number, s: ReferralSettings): num
   let cents = s.rewardType === "PERCENT" ? Math.floor((totalCents * s.rewardValue) / 100) : Math.trunc(s.rewardValue);
   if (s.maxRewardCents !== null) cents = Math.min(cents, s.maxRewardCents);
   return Number.isSafeInteger(cents) && cents > 0 ? cents : 0;
-}
-
-/** One-line Arabic rule for the account page, e.g. "10% من قيمة أول طلب لصديقك (حتى $5.00)". */
-export function referralRuleText(s: ReferralSettings): string {
-  const reward =
-    s.rewardType === "PERCENT"
-      ? `${s.rewardValue}% من قيمة أول طلب يدفعه صديقك${s.maxRewardCents ? ` (حتى ${formatPrice(s.maxRewardCents, WALLET_CURRENCY)})` : ""}`
-      : `${formatPrice(Math.trunc(s.rewardValue), WALLET_CURRENCY)} عن أول طلب يدفعه صديقك`;
-  const min = s.minOrderCents > 0 ? ` بشرط ألا تقل قيمة الطلب عن ${formatPrice(s.minOrderCents, WALLET_CURRENCY)}` : "";
-  return `تحصل على ${reward}${min}، تُضاف إلى محفظتك بعد تسليم طلبه.`;
 }
 
 function generateCode(): string {

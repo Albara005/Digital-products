@@ -15,6 +15,8 @@ const categorySchema = z.object({
   name: z.string().trim().min(1, "اسم الفئة مطلوب").max(80, "الاسم طويل جداً"),
   slug: z.string().trim().max(80, "الرابط طويل جداً"),
   description: z.string().trim().max(1000, "الوصف طويل جداً"),
+  nameEn: z.string().trim().max(80, "الاسم الإنجليزي طويل جداً"),
+  descriptionEn: z.string().trim().max(1000, "الوصف الإنجليزي طويل جداً"),
   sortOrder: z.coerce.number("أدخل رقماً").int("أدخل رقماً صحيحاً").min(-100000).max(100000),
 });
 
@@ -25,14 +27,23 @@ export async function saveCategory(_prev: FormState, formData: FormData): Promis
     name: str(formData, "name"),
     slug: str(formData, "slug"),
     description: str(formData, "description"),
+    nameEn: str(formData, "nameEn"),
+    descriptionEn: str(formData, "descriptionEn"),
     sortOrder: str(formData, "sortOrder") || "0",
   });
   if (!parsed.success) return fromZod(parsed.error);
-  const { id, name, description, sortOrder } = parsed.data;
+  const { id, name, description, sortOrder, nameEn, descriptionEn } = parsed.data;
   const slug = slugify(parsed.data.slug || name);
   if (!slug) return fail("تعذّر توليد رابط صالح، اكتب الرابط يدوياً.", { slug: "رابط غير صالح" });
 
-  const data = { name, slug, description: description || null, sortOrder };
+  const data = {
+    name,
+    nameEn: nameEn || null,
+    slug,
+    description: description || null,
+    descriptionEn: descriptionEn || null,
+    sortOrder,
+  };
   let savedId: string;
   try {
     if (id) savedId = (await prisma.category.update({ where: { id }, data, select: { id: true } })).id;

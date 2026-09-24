@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { OrderStatus, WalletTransactionType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { formatPrice, orderStatusLabel } from "@/lib/format";
+import { formatPrice } from "@/lib/format";
 import { orderPagePath, siteUrl } from "@/lib/email";
 import { getCheckoutOptions } from "@/lib/payments";
 import {
@@ -11,7 +10,6 @@ import {
   ensureReferralCode,
   getReferralSettings,
   getReferralSummary,
-  referralRuleText,
   settleReferralRewards,
 } from "@/lib/referrals";
 import { countWalletTransactions, listWalletTransactions } from "@/lib/wallet";
@@ -30,21 +28,26 @@ import {
   IconSparkles,
   IconWallet,
 } from "@/components/store/icons";
+import Link from "@/components/store/link";
 import { LocalTime } from "@/components/store/local-time";
 import { ReferralCard, type ReferralCardData } from "@/components/store/referral-card";
 import { Pager, pageParam } from "@/components/store/pagination";
 import { WALLET_CURRENCY, firstParam } from "@/components/store/site";
 import { type PaymentProviderOption, TopupForm } from "@/components/store/topup-form";
 import { EmptyState } from "@/components/store/ui";
+import { type Locale, localized, localizePath } from "@/i18n/config";
+import { type Dictionary, getDictionary, getLocale } from "@/i18n/server";
 import { signOutAction } from "../login/actions";
 import { getSignedInCustomer } from "../_lib/session";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "حسابي",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: (await getDictionary()).account.metaTitle,
+    robots: { index: false, follow: false },
+  };
+}
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -59,17 +62,29 @@ const statusTone: Record<OrderStatus, string> = {
   REFUNDED: "bg-fuchsia/10 text-fuchsia ring-fuchsia/30",
 };
 
-const txCopy: Record<WalletTransactionType, { label: string; icon: typeof IconWallet }> = {
-  TOPUP: { label: "شحن رصيد", icon: IconWallet },
-  PURCHASE: { label: "دفع طلب من المحفظة", icon: IconBag },
-  REFUND: { label: "استرجاع إلى المحفظة", icon: IconRefresh },
-  ADJUSTMENT: { label: "تعديل من الإدارة", icon: IconSparkles },
+const txIcon: Record<WalletTransactionType, typeof IconWallet> = {
+  TOPUP: IconWallet,
+  PURCHASE: IconBag,
+  REFUND: IconRefresh,
+  ADJUSTMENT: IconSparkles,
 };
+
+/** The referral rule in the shopper's language, e.g. "تحصل على 5% من قيمة أول طلب يدفعه صديقك…". */
+function referralRule(settings: Awaited<ReturnType<typeof getReferralSettings>>, t: Dictionary) {
+  const usd = (cents: number) => formatPrice(cents, WALLET_CURRENCY);
+  const percent = settings.rewardType === "PERCENT";
+  return t.referral.rule({
+    percent: percent ? settings.rewardValue : null,
+    fixed: percent ? null : usd(Math.trunc(settings.rewardValue)),
+    max: percent && settings.maxRewardCents ? usd(settings.maxRewardCents) : null,
+    min: settings.minOrderCents > 0 ? usd(settings.minOrderCents) : null,
+  });
+}
 
 const shortId = (id: string) => id.slice(-8).toUpperCase();
 
 /** The "invite your friends" card. A failure here hides the card instead of breaking the page. */
-async function loadReferral(customerId: string): Promise<ReferralCardData | null> {
+async function loadReferral(customerId: string, t: Dictionary, locale: Locale): Promise<ReferralCardData | null> {
   try {
     // Credits any reward whose order was fulfilled while the credit step failed
     await settleReferralRewards(customerId);
@@ -80,8 +95,8 @@ async function loadReferral(customerId: string): Promise<ReferralCardData | null
     ]);
     if (!settings.enabled && summary.invited === 0 && summary.earnedCents === 0) return null;
     return {
-      link: settings.enabled ? `${siteUrl()}/?ref=${code}` : null,
-      rule: referralRuleText(settings),
+      link: settings.enabled ? `${siteUrl()}${localizePath("/", locale)}?ref=${code}` : null,
+      rule: referralRule(settings, t),
       ...summary,
     };
   } catch (err) {
@@ -90,10 +105,13 @@ async function loadReferral(customerId: string): Promise<ReferralCardData | null
   }
 }
 
-async function loadCheckoutOptions(): Promise<{ providers: PaymentProviderOption[]; devMode: boolean }> {
+async function loadCheckoutOptions(t: Dictionary): Promise<{ providers: PaymentProviderOption[]; devMode: boolean }> {
   try {
     const options = await getCheckoutOptions();
-    return { providers: options.providers, devMode: options.devMode };
+    return {
+      providers: options.providers.map((p) => ({ id: p.id, label: t.cartPage.providers[p.id] ?? p.label })),
+      devMode: options.devMode,
+    };
   } catch (err) {
     console.error("[account] Could not load payment options", err);
     return { providers: [], devMode: false };
@@ -102,8 +120,8 @@ async function loadCheckoutOptions(): Promise<{ providers: PaymentProviderOption
 
 export default async function AccountPage({ searchParams }: Props) {
   const sp = await searchParams;
-  const customer = await getSignedInCustomer();
-  if (!customer) redirect("/login?next=/account");
+  const [customer, t, locale] = await Promise.all([getSignedInCustomer(), getDictionary(), getLocale()]);
+  if (!customer) redirect(localizePath("/login?next=/account", locale));
 
   const topupReturn = firstParam(sp.topup);
   const ordersPage = pageParam(sp.orders);
@@ -124,7 +142,16 @@ export default async function AccountPage({ searchParams }: Props) {
         totalCents: true,
         currency: true,
         createdAt: true,
-        items: { orderBy: { id: "asc" }, take: 2, select: { productName: true, variantLabel: true, quantity: true } },
+        items: {
+          orderBy: { id: "asc" },
+          take: 2,
+          select: {
+            productName: true,
+            variantLabel: true,
+            quantity: true,
+            variant: { select: { labelEn: true, product: { select: { nameEn: true } } } },
+          },
+        },
         _count: { select: { items: true } },
       },
     }),
@@ -137,8 +164,8 @@ export default async function AccountPage({ searchParams }: Props) {
           select: { status: true, amountCents: true, currency: true },
         })
       : null,
-    loadCheckoutOptions(),
-    loadReferral(customer.id),
+    loadCheckoutOptions(t),
+    loadReferral(customer.id, t, locale),
     prisma.ticket.count({ where: { ...mine, status: "ANSWERED" } }),
   ]);
 
@@ -162,25 +189,25 @@ export default async function AccountPage({ searchParams }: Props) {
               My account
             </span>
           </p>
-          <h1 className="mt-3 text-3xl font-bold sm:text-4xl">حسابي</h1>
+          <h1 className="mt-3 text-3xl font-bold sm:text-4xl">{t.account.title}</h1>
           <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
             <bdi dir="ltr" className="max-w-full min-w-0 truncate font-medium text-text">
               {customer.email}
             </bdi>
             <span aria-hidden="true">·</span>
             <span>
-              عضو منذ <LocalTime iso={customer.createdAt.toISOString()} dateOnly />
+              {t.account.memberSince} <LocalTime iso={customer.createdAt.toISOString()} dateOnly />
             </span>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link href="/account/tickets" className="btn-ghost h-10">
             <IconChat className="size-4" />
-            تذاكر الدعم
+            {t.account.tickets}
             {answeredTickets > 0 ? (
               <span
                 className="rounded-full bg-volt px-1.5 font-display text-[11px] font-bold text-bg"
-                title="تذاكر فيها رد جديد من الدعم"
+                title={t.account.newReplies}
               >
                 {answeredTickets}
               </span>
@@ -189,17 +216,17 @@ export default async function AccountPage({ searchParams }: Props) {
           <form action={signOutAction}>
             <button type="submit" className="btn-ghost h-10">
               <IconLogout className="size-4" />
-              تسجيل الخروج
+              {t.account.signOut}
             </button>
           </form>
         </div>
       </header>
 
       {topupReturn === "ok" ? (
-        <TopupBanner topup={latestTopup} />
+        <TopupBanner topup={latestTopup} t={t} />
       ) : topupReturn === "cancelled" ? (
-        <Banner tone="muted" icon={<IconAlert className="size-5" />} dismiss>
-          <span className="font-bold">أُلغيت عملية الشحن.</span> لم يُخصم أي مبلغ، ويمكنك المحاولة مجدداً في أي وقت.
+        <Banner tone="muted" icon={<IconAlert className="size-5" />} dismiss={t.account.hide}>
+          <span className="font-bold">{t.account.topupCancelled}</span> {t.account.topupCancelledText}
         </Banner>
       ) : null}
 
@@ -214,24 +241,24 @@ export default async function AccountPage({ searchParams }: Props) {
               <IconWallet className="size-5" />
             </span>
             <h2 id="wallet-balance" className="font-bold">
-              رصيد المحفظة
+              {t.account.walletBalance}
             </h2>
           </div>
           <p dir="ltr" className="relative mt-5 text-end font-display text-4xl font-bold text-volt tabular-nums sm:text-5xl">
             {formatPrice(balance, WALLET_CURRENCY)}
           </p>
           <p className="relative mt-3 text-sm leading-7 text-muted">
-            استخدم رصيدك عند الدفع من السلة بتفعيل خيار «استخدم رصيد المحفظة»، ويُستكمل أي فرق بالبطاقة.
+            {t.account.walletHint}
           </p>
           <dl className="relative mt-auto grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm">
             <div>
-              <dt className="text-xs text-muted">الطلبات</dt>
+              <dt className="text-xs text-muted">{t.account.orders}</dt>
               <dd dir="ltr" className="mt-1 text-end font-display text-lg font-bold tabular-nums">
                 {orderCount}
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-muted">حركات المحفظة</dt>
+              <dt className="text-xs text-muted">{t.account.walletMoves}</dt>
               <dd dir="ltr" className="mt-1 text-end font-display text-lg font-bold tabular-nums">
                 {txCount}
               </dd>
@@ -241,9 +268,9 @@ export default async function AccountPage({ searchParams }: Props) {
 
         <section aria-labelledby="wallet-topup" className="card p-5 sm:p-6">
           <h2 id="wallet-topup" className="text-lg font-bold">
-            شحن الرصيد
+            {t.account.topupTitle}
           </h2>
-          <p className="mt-1 mb-5 text-sm text-muted">أضف رصيداً لمحفظتك واستخدمه في مشترياتك القادمة.</p>
+          <p className="mt-1 mb-5 text-sm text-muted">{t.account.topupText}</p>
           <TopupForm providers={options.providers} devMode={options.devMode} currency={WALLET_CURRENCY} />
         </section>
       </div>
@@ -253,14 +280,14 @@ export default async function AccountPage({ searchParams }: Props) {
       <section id="orders" aria-labelledby="orders-title" className="mt-12 scroll-mt-32">
         <div className="flex items-end justify-between gap-3">
           <h2 id="orders-title" className="text-xl font-bold">
-            طلباتي
+            {t.account.myOrders}
           </h2>
           {orderCount > 0 ? (
             <span className="text-xs text-muted">
               <span dir="ltr" className="font-display font-bold text-text">
                 {orderCount}
               </span>{" "}
-              طلب
+              {t.account.orderWord}
             </span>
           ) : null}
         </div>
@@ -269,18 +296,22 @@ export default async function AccountPage({ searchParams }: Props) {
           <div className="mt-4">
             <EmptyState
               icon={<IconReceipt className="size-7" />}
-              title={orderCount > 0 ? "لا توجد طلبات في هذه الصفحة" : "لا توجد طلبات بعد"}
-              description="كل طلب تُتمّه بهذا البريد يظهر هنا مع منتجاته."
+              title={orderCount > 0 ? t.account.noOrdersPage : t.account.noOrders}
+              description={t.account.noOrdersText}
             >
               <Link href={orderCount > 0 ? "/account#orders" : "/"} className="btn-primary">
-                {orderCount > 0 ? "العودة لأول صفحة" : "ابدأ التسوّق"}
+                {orderCount > 0 ? t.account.firstPage : t.account.startShopping}
               </Link>
             </EmptyState>
           </div>
         ) : (
           <ul className="mt-4 space-y-3">
             {orders.map((order) => {
-              const [first, second] = order.items;
+              const [first, second] = order.items.map((item) => ({
+                ...item,
+                productName: localized(locale, item.productName, item.variant.product.nameEn),
+                variantLabel: localized(locale, item.variantLabel, item.variant.labelEn),
+              }));
               const more = order._count.items - order.items.length;
               return (
                 <li key={order.id}>
@@ -299,7 +330,7 @@ export default async function AccountPage({ searchParams }: Props) {
                           #{shortId(order.id)}
                         </span>
                         <span className={`badge ring-1 ring-inset ${statusTone[order.status]}`}>
-                          {orderStatusLabel[order.status]}
+                          {t.orderStatus[order.status]}
                         </span>
                       </span>
                       <span className="mt-1.5 block truncate text-sm">
@@ -323,7 +354,7 @@ export default async function AccountPage({ searchParams }: Props) {
                             + <bdi>{second.productName}</bdi>
                           </span>
                         ) : null}
-                        {more > 0 ? <span className="text-muted"> و{more} أخرى</span> : null}
+                        {more > 0 ? <span className="text-muted">{t.account.more(more)}</span> : null}
                       </span>
                       <span className="mt-1 block text-xs text-muted">
                         <LocalTime iso={order.createdAt.toISOString()} />
@@ -354,14 +385,14 @@ export default async function AccountPage({ searchParams }: Props) {
           pageSize={ORDERS_PAGE_SIZE}
           total={orderCount}
           hash="orders"
-          label="صفحات الطلبات"
+          label={t.account.ordersPages}
         />
       </section>
 
       <section id="wallet" aria-labelledby="wallet-title" className="mt-12 scroll-mt-32">
         <div className="flex items-end justify-between gap-3">
           <h2 id="wallet-title" className="text-xl font-bold">
-            سجل المحفظة
+            {t.account.walletHistory}
           </h2>
         </div>
 
@@ -369,8 +400,8 @@ export default async function AccountPage({ searchParams }: Props) {
           <div className="mt-4">
             <EmptyState
               icon={<IconWallet className="size-7" />}
-              title={txCount > 0 ? "لا توجد حركات في هذه الصفحة" : "لا توجد حركات بعد"}
-              description="تظهر هنا عمليات الشحن والدفع والاسترجاع الخاصة بمحفظتك."
+              title={txCount > 0 ? t.account.noMovesPage : t.account.noMoves}
+              description={t.account.noMovesText}
             />
           </div>
         ) : (
@@ -378,8 +409,8 @@ export default async function AccountPage({ searchParams }: Props) {
             {transactions.map((tx) => {
               const copy =
                 tx.type === "ADJUSTMENT" && tx.note === REFERRAL_WALLET_NOTE
-                  ? { label: "مكافأة إحالة", icon: IconGift }
-                  : txCopy[tx.type];
+                  ? { label: t.account.referralReward, icon: IconGift }
+                  : { label: t.account.tx[tx.type], icon: txIcon[tx.type] };
               const Icon = copy.icon;
               const credit = tx.amountCents >= 0;
               const order = tx.orderId ? txOrderById.get(tx.orderId) : undefined;
@@ -400,7 +431,7 @@ export default async function AccountPage({ searchParams }: Props) {
                         <>
                           <span aria-hidden="true">·</span>
                           <Link href={orderPagePath(order)} prefetch={false} className="text-text underline decoration-border underline-offset-4 hover:text-volt hover:decoration-volt">
-                            طلب{" "}
+                            {t.account.order}{" "}
                             <span dir="ltr" className="font-display">
                               #{shortId(order.id)}
                             </span>
@@ -417,7 +448,7 @@ export default async function AccountPage({ searchParams }: Props) {
                       </span>
                     </p>
                     <p className="mt-0.5 text-[11px] text-muted">
-                      الرصيد{" "}
+                      {t.account.balance}{" "}
                       <span dir="ltr" className="font-display tabular-nums">
                         {formatPrice(tx.balanceAfterCents, WALLET_CURRENCY)}
                       </span>
@@ -436,7 +467,7 @@ export default async function AccountPage({ searchParams }: Props) {
           pageSize={WALLET_PAGE_SIZE}
           total={txCount}
           hash="wallet"
-          label="صفحات سجل المحفظة"
+          label={t.account.walletPages}
         />
       </section>
     </div>
@@ -447,13 +478,14 @@ function Banner({
   tone,
   icon,
   children,
-  dismiss = false,
+  dismiss,
   extra,
 }: {
   tone: "success" | "volt" | "muted" | "danger";
   icon: React.ReactNode;
   children: React.ReactNode;
-  dismiss?: boolean;
+  /** Label of the "hide" link, when the banner can be dismissed. */
+  dismiss?: string;
   extra?: React.ReactNode;
 }) {
   const tones = {
@@ -469,45 +501,51 @@ function Banner({
       {extra}
       {dismiss ? (
         <Link href="/account" className="text-xs text-muted underline underline-offset-4 hover:text-text">
-          إخفاء
+          {dismiss}
         </Link>
       ) : null}
     </div>
   );
 }
 
-function TopupBanner({ topup }: { topup: { status: "PENDING" | "PAID" | "FAILED"; amountCents: number; currency: string } | null }) {
+function TopupBanner({
+  topup,
+  t,
+}: {
+  topup: { status: "PENDING" | "PAID" | "FAILED"; amountCents: number; currency: string } | null;
+  t: Dictionary;
+}) {
   if (topup?.status === "PENDING") {
     return (
       <Banner tone="volt" icon={<IconClock className="size-5" />} extra={<AutoRefresh intervalMs={3000} maxMs={90_000} />}>
-        <span className="font-bold">نؤكد عملية الدفع الآن.</span> سيُضاف{" "}
+        <span className="font-bold">{t.account.topupPending}</span> {t.account.willAdd ? <>{t.account.willAdd} </> : null}
         <span dir="ltr" className="font-display font-bold">
           {formatPrice(topup.amountCents, topup.currency)}
         </span>{" "}
-        إلى رصيدك خلال لحظات.
+        {t.account.toBalanceSoon}
       </Banner>
     );
   }
   if (topup?.status === "FAILED") {
     return (
-      <Banner tone="danger" icon={<IconAlert className="size-5" />} dismiss>
-        <span className="font-bold">لم تكتمل عملية الشحن.</span> لم يُضف أي رصيد؛ إن خُصم المبلغ تواصل مع الدعم.
+      <Banner tone="danger" icon={<IconAlert className="size-5" />} dismiss={t.account.hide}>
+        <span className="font-bold">{t.account.topupFailed}</span> {t.account.topupFailedText}
       </Banner>
     );
   }
   return (
-    <Banner tone="success" icon={topup ? <IconCheck className="size-5" /> : <IconGift className="size-5" />} dismiss>
-      <span className="font-bold">تم شحن رصيدك بنجاح.</span>{" "}
+    <Banner tone="success" icon={topup ? <IconCheck className="size-5" /> : <IconGift className="size-5" />} dismiss={t.account.hide}>
+      <span className="font-bold">{t.account.topupOk}</span>{" "}
       {topup ? (
         <>
-          أُضيف{" "}
+          {t.account.added ? <>{t.account.added} </> : null}
           <span dir="ltr" className="font-display font-bold">
             {formatPrice(topup.amountCents, topup.currency)}
           </span>{" "}
-          إلى محفظتك.
+          {t.account.toWallet}
         </>
       ) : (
-        "سيظهر الرصيد في محفظتك."
+        t.account.willShow
       )}
     </Banner>
   );

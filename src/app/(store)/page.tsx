@@ -1,5 +1,5 @@
+import type { Metadata } from "next";
 import Image from "next/image";
-import Link from "next/link";
 import {
   IconArrow,
   IconBolt,
@@ -9,27 +9,34 @@ import {
   IconLock,
   IconShieldCheck,
 } from "@/components/store/icons";
+import Link from "@/components/store/link";
 import { ProductGrid } from "@/components/store/product-card";
 import { categoryHref } from "@/components/store/site";
 import { EmptyState, SectionHeading } from "@/components/store/ui";
+import { alternates } from "@/i18n/metadata";
+import { type Dictionary, getDictionary } from "@/i18n/server";
 import { getFeaturedProducts, getHomeCategories } from "./_lib/queries";
 
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata(): Promise<Metadata> {
+  return { alternates: await alternates("/") };
+}
+
 export default async function HomePage() {
-  const [categories, featured] = await Promise.all([getHomeCategories(), getFeaturedProducts(8)]);
+  const [categories, featured, t] = await Promise.all([getHomeCategories(), getFeaturedProducts(8), getDictionary()]);
 
   return (
     <>
-      <Hero />
-      <TrustStrip />
+      <Hero t={t} />
+      <TrustStrip t={t} />
 
       <section id="categories" className="mx-auto max-w-7xl scroll-mt-32 px-4 pt-16 sm:px-6 sm:pt-24">
         <SectionHeading
           index="01"
           eyebrow="Categories"
-          title="تصفّح الأقسام"
-          description="اختر القسم وابدأ — كل المنتجات رقمية وتصلك بدون شحن أو انتظار."
+          title={t.home.categoriesTitle}
+          description={t.home.categoriesText}
         />
         {categories.length > 0 ? (
           <ul className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -52,7 +59,7 @@ export default async function HomePage() {
                   <span className="relative min-w-0 flex-1">
                     <span className="block truncate text-lg font-bold">{c.name}</span>
                     <span className="mt-0.5 line-clamp-1 block text-sm text-muted">
-                      {c.description || `${c.productCount} ${c.productCount === 1 ? "منتج" : "منتجات"}`}
+                      {c.description || `${c.productCount} ${t.common.products(c.productCount)}`}
                     </span>
                   </span>
                   <span className="relative grid size-9 shrink-0 place-items-center rounded-full border border-border text-muted transition group-hover:border-volt group-hover:bg-volt group-hover:text-bg">
@@ -66,11 +73,11 @@ export default async function HomePage() {
           <div className="mt-8">
             <EmptyState
               icon={<IconBox className="size-7" />}
-              title="المتجر يجهّز منتجاته"
-              description="نضيف المنتجات حالياً، عد قريباً أو تواصل معنا إن كنت تبحث عن شيء محدد."
+              title={t.home.emptyTitle}
+              description={t.home.emptyText}
             >
               <Link href="/contact" className="btn-ghost">
-                تواصل معنا
+                {t.common.contact}
               </Link>
             </EmptyState>
           </div>
@@ -82,8 +89,8 @@ export default async function HomePage() {
           <SectionHeading
             index="02"
             eyebrow="Featured"
-            title="الأكثر طلباً"
-            description="منتجات مختارة يطلبها لاعبونا باستمرار."
+            title={t.home.featuredTitle}
+            description={t.home.featuredText}
           />
           <div className="mt-8">
             <ProductGrid products={featured} priorityCount={4} />
@@ -91,12 +98,12 @@ export default async function HomePage() {
         </section>
       ) : null}
 
-      <HowItWorks />
+      <HowItWorks t={t} />
     </>
   );
 }
 
-function Hero() {
+function Hero({ t }: { t: Dictionary }) {
   return (
     <section className="relative isolate overflow-hidden border-b border-border">
       {/* Backdrop: volt glow + fading grid */}
@@ -116,38 +123,33 @@ function Hero() {
               <span className="absolute inline-flex size-full animate-ping rounded-full bg-volt opacity-60" />
               <span className="relative inline-flex size-2 rounded-full bg-volt" />
             </span>
-            التسليم يعمل الآن — على مدار الساعة
+            {t.home.live}
           </p>
 
           <h1 className="mt-6 text-4xl leading-[1.15] font-bold sm:text-5xl lg:text-6xl">
-            أكوادك تصلك
+            {t.home.heroLine1}
             <br />
             <span className="relative inline-block text-volt [text-shadow:0_0_40px_rgba(212,255,61,0.35)]">
-              في ثوانٍ.
+              {t.home.heroLine2}
             </span>
           </h1>
 
           <p className="mt-6 max-w-xl text-base leading-8 text-muted sm:text-lg">
-            بطاقات هدايا الألعاب، الاشتراكات، الحسابات الجاهزة والخدمات الرقمية. ادفع بأمان واستلم طلبك فوراً على صفحة
-            طلبك — بدون حسابات ولا انتظار.
+            {t.home.heroText}
           </p>
 
           <div className="mt-8 flex flex-wrap gap-3">
             <Link href="#categories" className="btn-primary h-12 px-6 text-base">
-              تسوّق الآن
+              {t.home.shopNow}
               <IconArrow className="size-4" />
             </Link>
             <Link href="#how-it-works" className="btn-ghost h-12 px-6 text-base">
-              كيف يعمل؟
+              {t.home.howItWorks}
             </Link>
           </div>
 
           <dl className="mt-10 grid max-w-lg grid-cols-3 gap-3">
-            {[
-              { icon: IconBolt, k: "تسليم", v: "فوري" },
-              { icon: IconLock, k: "دفع", v: "آمن" },
-              { icon: IconClock, k: "دعم", v: "24/7" },
-            ].map(({ icon: Icon, k, v }) => (
+            {[IconBolt, IconLock, IconClock].map((Icon, i) => ({ icon: Icon, ...t.home.stats[i] })).map(({ icon: Icon, k, v }) => (
               <div key={k} className="rounded-xl border border-border bg-surface/70 p-3 backdrop-blur">
                 <Icon className="size-4 text-volt" />
                 <dt className="mt-2 text-xs text-muted">{k}</dt>
@@ -157,14 +159,14 @@ function Hero() {
           </dl>
         </div>
 
-        <HeroVisual />
+        <HeroVisual t={t} />
       </div>
     </section>
   );
 }
 
 /** Decorative "delivered code" ticket beside the brand mark. Purely illustrative. */
-function HeroVisual() {
+function HeroVisual({ t }: { t: Dictionary }) {
   return (
     <div aria-hidden="true" className="relative mx-auto w-full max-w-md select-none lg:max-w-none">
       <div className="absolute -inset-10 -z-10 rounded-full bg-volt/10 blur-3xl" />
@@ -185,13 +187,13 @@ function HeroVisual() {
             <span dir="ltr" className="font-display text-xs font-bold tracking-[0.2em] text-muted uppercase">
               Gift Card · 50 USD
             </span>
-            <span className="badge bg-success/15 text-success">تم التسليم</span>
+            <span className="badge bg-success/15 text-success">{t.home.delivered}</span>
           </div>
           <div className="flex items-center justify-between gap-4 px-5 py-4">
             <span dir="ltr" className="font-mono text-lg font-bold tracking-widest text-volt sm:text-xl">
               NTRO-7K2F-Q9XA
             </span>
-            <span className="rounded-md border border-border px-2 py-1 text-xs text-muted">نسخ</span>
+            <span className="rounded-md border border-border px-2 py-1 text-xs text-muted">{t.home.copy}</span>
           </div>
         </div>
       </div>
@@ -199,15 +201,10 @@ function HeroVisual() {
   );
 }
 
-function TrustStrip() {
-  const items = [
-    { icon: IconBolt, title: "تسليم فوري", text: "الأكواد تظهر مباشرة بعد تأكيد الدفع" },
-    { icon: IconLock, title: "دفع آمن ومشفّر", text: "لا نخزّن بيانات بطاقتك إطلاقاً" },
-    { icon: IconShieldCheck, title: "ضمان على الحسابات", text: "استبدال أو استرجاع خلال مدة الضمان" },
-    { icon: IconHeadset, title: "دعم 24/7", text: "فريقنا جاهز لمساعدتك في أي وقت" },
-  ];
+function TrustStrip({ t }: { t: Dictionary }) {
+  const items = [IconBolt, IconLock, IconShieldCheck, IconHeadset].map((icon, i) => ({ icon, ...t.home.trust[i] }));
   return (
-    <section aria-label="لماذا Nitro Store" className="border-b border-border bg-surface/50">
+    <section aria-label={t.home.trustLabel} className="border-b border-border bg-surface/50">
       <ul className="mx-auto grid max-w-7xl grid-cols-2 lg:grid-cols-4">
         {items.map(({ icon: Icon, title, text }, i) => (
           <li
@@ -230,15 +227,11 @@ function TrustStrip() {
   );
 }
 
-function HowItWorks() {
-  const steps = [
-    { n: "01", title: "اختر", text: "اختر المنتج والفئة التي تناسبك، وأضفها إلى السلة." },
-    { n: "02", title: "ادفع", text: "أدخل بريدك الإلكتروني وادفع عبر بوابة دفع آمنة ومشفّرة." },
-    { n: "03", title: "استلم فوراً", text: "يظهر الكود على صفحة طلبك فور تأكيد الدفع، ونرسل لك رابطها بالبريد." },
-  ];
+function HowItWorks({ t }: { t: Dictionary }) {
+  const steps = t.home.steps.map((step, i) => ({ n: String(i + 1).padStart(2, "0"), ...step }));
   return (
     <section id="how-it-works" className="mx-auto max-w-7xl scroll-mt-32 px-4 pt-16 sm:px-6 sm:pt-24">
-      <SectionHeading index="03" eyebrow="How it works" title="ثلاث خطوات فقط" />
+      <SectionHeading index="03" eyebrow="How it works" title={t.home.stepsTitle} />
       <ol className="mt-8 grid gap-3 md:grid-cols-3">
         {steps.map((s, i) => (
           <li key={s.n} className="card relative overflow-hidden p-6">

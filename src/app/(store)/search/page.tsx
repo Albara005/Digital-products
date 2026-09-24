@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { IconSearch } from "@/components/store/icons";
+import Link from "@/components/store/link";
 import { ProductGrid } from "@/components/store/product-card";
 import { SearchForm } from "@/components/store/search-form";
 import { categoryHref, firstParam } from "@/components/store/site";
 import { EmptyState } from "@/components/store/ui";
+import { getDictionary } from "@/i18n/server";
 import { SEARCH_MAX_LENGTH, getNavCategories, searchProducts } from "../_lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -17,27 +18,34 @@ function readQuery(value: string | string[] | undefined) {
 
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
   const q = readQuery((await searchParams).q);
+  const t = await getDictionary();
   return {
-    title: q ? `نتائج البحث عن "${q}"` : "البحث",
+    title: q ? t.search.metaTitle(q) : t.search.title,
     robots: { index: false, follow: true },
   };
 }
 
 export default async function SearchPage({ searchParams }: Props) {
   const q = readQuery((await searchParams).q);
-  const [results, categories] = await Promise.all([searchProducts(q), q ? Promise.resolve([]) : getNavCategories()]);
+  const [results, categories, t] = await Promise.all([
+    searchProducts(q),
+    q ? Promise.resolve([]) : getNavCategories(),
+    getDictionary(),
+  ]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 pt-10 sm:px-6 sm:pt-14">
       <div className="mx-auto max-w-2xl text-center">
-        <h1 className="text-3xl font-bold sm:text-4xl">{q ? "نتائج البحث" : "ابحث في المتجر"}</h1>
+        <h1 className="text-3xl font-bold sm:text-4xl">{q ? t.search.resultsTitle : t.search.searchTitle}</h1>
         <SearchForm size="lg" defaultValue={q} autoFocus={!q} className="mt-6" />
         {q ? (
           <p className="mt-4 text-sm text-muted">
             <span dir="ltr" className="font-display font-bold text-text">
               {results.length}
             </span>{" "}
-            {results.length === 1 ? "نتيجة" : "نتائج"} لـ «<span className="text-text">{q}</span>»
+            {t.search.resultWord(results.length)} {t.search.for} {t.search.quoteOpen}
+            <span className="text-text">{q}</span>
+            {t.search.quoteClose}
           </p>
         ) : null}
       </div>
@@ -46,7 +54,7 @@ export default async function SearchPage({ searchParams }: Props) {
         {!q ? (
           categories.length > 0 ? (
             <div className="text-center">
-              <p className="text-sm text-muted">أو تصفّح الأقسام:</p>
+              <p className="text-sm text-muted">{t.search.browse}</p>
               <ul className="mt-4 flex flex-wrap justify-center gap-2">
                 {categories.map((c) => (
                   <li key={c.id}>
@@ -66,14 +74,14 @@ export default async function SearchPage({ searchParams }: Props) {
         ) : (
           <EmptyState
             icon={<IconSearch className="size-7" />}
-            title="لم نجد ما تبحث عنه"
-            description="جرّب كلمة أبسط أو اسم اللعبة أو المنصة بالإنجليزية، أو تواصل معنا وسنوفّره لك."
+            title={t.search.emptyTitle}
+            description={t.search.emptyText}
           >
             <Link href="/" className="btn-primary">
-              تصفّح المتجر
+              {t.search.browseStore}
             </Link>
             <Link href="/contact" className="btn-ghost">
-              تواصل معنا
+              {t.common.contact}
             </Link>
           </EmptyState>
         )}

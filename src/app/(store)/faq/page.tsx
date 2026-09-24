@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { IconChevronDown } from "@/components/store/icons";
+import Link from "@/components/store/link";
 import { PageHeader } from "@/components/store/ui";
+import { type Locale } from "@/i18n/config";
+import { alternates } from "@/i18n/metadata";
+import { getLocale } from "@/i18n/server";
 
-export const metadata: Metadata = {
-  title: "الأسئلة الشائعة",
-  description: "كل ما تحتاج معرفته عن التسليم، الدفع، ضمان الحسابات والاسترجاع في Nitro Store.",
-};
+type FaqGroup = { title: string; items: { q: string; a: React.ReactNode }[] };
 
-const groups: { title: string; items: { q: string; a: React.ReactNode }[] }[] = [
+const arGroups: FaqGroup[] = [
   {
     title: "التسليم",
     items: [
@@ -77,16 +77,106 @@ const groups: { title: string; items: { q: string; a: React.ReactNode }[] }[] = 
   },
 ];
 
-export default function FaqPage() {
+const enGroups: FaqGroup[] = [
+  {
+    title: "Delivery",
+    items: [
+      {
+        q: "When will I receive my order?",
+        a: "Gift cards, subscriptions and accounts that are in stock are delivered automatically within seconds of payment being confirmed, and appear right away on your order page. Services are carried out manually by our team, usually within a few hours, and your order page updates as soon as they're done.",
+      },
+      {
+        q: "Where do I find my code after purchase?",
+        a: "After payment you're taken straight to your private order page, which shows your codes and account details with a copy button. We also email you a link to this page — keep it somewhere safe and don't share it with anyone.",
+      },
+      {
+        q: "I paid but my code hasn't appeared. What should I do?",
+        a: "Give it a minute — the order page refreshes automatically as soon as payment is confirmed. If the order stays “Processing” for longer, we're preparing it manually and it will arrive shortly. Check your spam folder too, and if you need help, contact us with your order number.",
+      },
+      {
+        q: "Do I need to create an account?",
+        a: "No. Your email address at checkout is all we need to send you the link to your order page.",
+      },
+    ],
+  },
+  {
+    title: "Payment",
+    items: [
+      {
+        q: "Which payment methods do you accept?",
+        a: "We accept bank cards and the payment methods shown on our secure checkout page. Payments go through a certified, encrypted payment gateway — we never see or store your card details.",
+      },
+      {
+        q: "What currency are prices shown in?",
+        a: "Prices are set and charged in US dollars. If you choose another currency at the top of the page, we show an approximate converted price for reference only; your bank may apply its own currency conversion fees.",
+      },
+    ],
+  },
+  {
+    title: "Accounts & warranty",
+    items: [
+      {
+        q: "Are the accounts guaranteed?",
+        a: "Yes. Every account comes with a warranty period shown on its product page, starting from delivery. If an account doesn't work as described during the warranty, we replace it or refund you.",
+      },
+      {
+        q: "What isn't covered by the warranty?",
+        a: "The warranty doesn't cover problems caused by not following the usage instructions provided, sharing the account, or breaking the terms of the platform that owns the account.",
+      },
+    ],
+  },
+  {
+    title: "Refunds",
+    items: [
+      {
+        q: "Can I get a refund?",
+        a: (
+          <>
+            Digital codes can&apos;t be refunded once they&apos;ve been revealed, because they become usable immediately. There are
+            exceptions, such as a code that is invalid on delivery or an account that stops working during its warranty. See
+            the details in our <Link href="/refund-policy">Refund Policy</Link>.
+          </>
+        ),
+      },
+      {
+        q: "Will the cards work in my region?",
+        a: "Some cards are tied to a specific region or store. Check the product description before you buy — a code bought for the wrong region can't be refunded once it has been revealed.",
+      },
+    ],
+  },
+];
+
+const copy: Record<Locale, { title: string; metaDescription: string; description: string; groups: FaqGroup[]; notFound: string; contact: string }> = {
+  ar: {
+    title: "الأسئلة الشائعة",
+    metaDescription: "كل ما تحتاج معرفته عن التسليم، الدفع، ضمان الحسابات والاسترجاع في Nitro Store.",
+    description: "إجابات سريعة عن التسليم، الدفع، الضمان والاسترجاع. لم تجد سؤالك؟ فريق الدعم متاح على مدار الساعة.",
+    groups: arGroups,
+    notFound: "لم تجد إجابة سؤالك؟",
+    contact: "تواصل معنا",
+  },
+  en: {
+    title: "Frequently asked questions",
+    metaDescription: "Everything you need to know about delivery, payment, account warranties and refunds at Nitro Store.",
+    description: "Quick answers about delivery, payment, warranties and refunds. Can't find your question? Our support team is available around the clock.",
+    groups: enGroups,
+    notFound: "Didn't find your answer?",
+    contact: "Contact us",
+  },
+};
+
+export async function generateMetadata(): Promise<Metadata> {
+  const c = copy[await getLocale()];
+  return { title: c.title, description: c.metaDescription, alternates: await alternates("/faq") };
+}
+
+export default async function FaqPage() {
+  const c = copy[await getLocale()];
   return (
     <>
-      <PageHeader
-        eyebrow="FAQ"
-        title="الأسئلة الشائعة"
-        description="إجابات سريعة عن التسليم، الدفع، الضمان والاسترجاع. لم تجد سؤالك؟ فريق الدعم متاح على مدار الساعة."
-      />
+      <PageHeader eyebrow="FAQ" title={c.title} description={c.description} />
       <div className="mx-auto max-w-3xl space-y-10 px-4 pt-10 sm:px-6">
-        {groups.map((group) => (
+        {c.groups.map((group) => (
           <section key={group.title}>
             <h2 className="text-sm font-bold text-volt">{group.title}</h2>
             <div className="mt-3 divide-y divide-border rounded-xl border border-border bg-surface">
@@ -106,9 +196,9 @@ export default function FaqPage() {
         ))}
 
         <div className="card flex flex-wrap items-center justify-between gap-4 p-5">
-          <p className="font-semibold">لم تجد إجابة سؤالك؟</p>
+          <p className="font-semibold">{c.notFound}</p>
           <Link href="/contact" className="btn-primary">
-            تواصل معنا
+            {c.contact}
           </Link>
         </div>
       </div>

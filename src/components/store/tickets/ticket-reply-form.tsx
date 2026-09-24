@@ -3,12 +3,14 @@
 import { startTransition, useActionState, useId, useState } from "react";
 import type { TicketStatus } from "@prisma/client";
 import { type TicketActionState, closeTicketAction, replyTicketAction } from "@/app/(store)/support/actions";
+import { useT } from "@/i18n/client";
 import { IconAlert, IconCheck, IconSpinner } from "../icons";
 import { MAX_TICKET_BODY } from "../site";
 
 /** Reply box (reopens a closed ticket) and a close button. `token` is set on the guest link page. */
 export function TicketReplyForm({ ticketId, token, status }: { ticketId: string; token: string | null; status: TicketStatus }) {
   const id = useId();
+  const t = useT();
   const [state, dispatch, pending] = useActionState<TicketActionState, FormData>(replyTicketAction, null);
   const [closeState, closeDispatch, closing] = useActionState<TicketActionState, FormData>(closeTicketAction, null);
   const [body, setBody] = useState("");
@@ -40,7 +42,7 @@ export function TicketReplyForm({ ticketId, token, status }: { ticketId: string;
       <form action={dispatch} onSubmit={onSubmit} className="space-y-3">
         {hidden}
         <label htmlFor={`${id}-body`} className="label">
-          {status === "CLOSED" ? "أرسل رداً لإعادة فتح التذكرة" : "ردّك"}
+          {status === "CLOSED" ? t.ticketReply.reopenLabel : t.ticketReply.replyLabel}
         </label>
         <textarea
           id={`${id}-body`}
@@ -50,7 +52,7 @@ export function TicketReplyForm({ ticketId, token, status }: { ticketId: string;
           maxLength={MAX_TICKET_BODY}
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          placeholder="اكتب رسالتك…"
+          placeholder={t.ticketReply.placeholder}
           className="input resize-y leading-7"
         />
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -62,12 +64,12 @@ export function TicketReplyForm({ ticketId, token, status }: { ticketId: string;
               {pending ? (
                 <>
                   <IconSpinner className="size-4" />
-                  جارٍ الإرسال…
+                  {t.ticketReply.sending}
                 </>
               ) : status === "CLOSED" ? (
-                "إرسال وإعادة الفتح"
+                t.ticketReply.sendReopen
               ) : (
-                "إرسال الرد"
+                t.ticketReply.send
               )}
             </button>
           </div>
@@ -82,7 +84,7 @@ export function TicketReplyForm({ ticketId, token, status }: { ticketId: string;
             disabled={pending || closing}
             className="text-xs text-muted underline decoration-border underline-offset-4 transition hover:text-text hover:decoration-volt disabled:opacity-50"
           >
-            {closing ? "جارٍ الإغلاق…" : "تم حل المشكلة؟ أغلق التذكرة"}
+            {closing ? t.ticketReply.closing : t.ticketReply.close}
           </button>
         </form>
       ) : null}

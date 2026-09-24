@@ -7,7 +7,15 @@ import type { FormAction, FormState } from "@/app/admin/_lib/form-state";
 import { FieldError, FormMessage } from "./ui";
 import { useFormAction } from "./useFormAction";
 
-type CategoryDefaults = { id: string; name: string; slug: string; description: string | null; sortOrder: number };
+type CategoryDefaults = {
+  id: string;
+  name: string;
+  nameEn: string | null;
+  slug: string;
+  description: string | null;
+  descriptionEn: string | null;
+  sortOrder: number;
+};
 
 export function CategoryForm({ action, category }: { action: FormAction; category?: CategoryDefaults }) {
   const [state, form, pending] = useFormAction(action);
@@ -97,6 +105,39 @@ function CategoryFields({
           defaultValue={category?.description ?? ""}
         />
         <FieldError state={state} name="description" />
+      </div>
+      <div>
+        <label htmlFor="cat-name-en" className="label">
+          English name <span className="text-xs font-normal">(اختياري)</span>
+        </label>
+        <input
+          id="cat-name-en"
+          name="nameEn"
+          dir="ltr"
+          lang="en"
+          className="input text-start"
+          maxLength={80}
+          defaultValue={category?.nameEn ?? ""}
+          placeholder="Game Cards"
+        />
+        <p className="mt-1 text-xs text-muted">يظهر في المتجر الإنجليزي؛ إن تُرك فارغاً يظهر الاسم العربي.</p>
+        <FieldError state={state} name="nameEn" />
+      </div>
+      <div>
+        <label htmlFor="cat-desc-en" className="label">
+          English description <span className="text-xs font-normal">(اختياري)</span>
+        </label>
+        <textarea
+          id="cat-desc-en"
+          name="descriptionEn"
+          dir="ltr"
+          lang="en"
+          rows={3}
+          maxLength={1000}
+          className="input resize-y text-start"
+          defaultValue={category?.descriptionEn ?? ""}
+        />
+        <FieldError state={state} name="descriptionEn" />
       </div>
       <div>
         <label htmlFor="cat-sort" className="label">

@@ -1,7 +1,9 @@
-import Link from "next/link";
+import { getDictionary } from "@/i18n/server";
+import Link from "./link";
 import { SearchForm } from "./search-form";
 
-export function NotFoundView() {
+export async function NotFoundView() {
+  const t = await getDictionary();
   return (
     <section className="relative isolate overflow-hidden">
       <div
@@ -16,13 +18,13 @@ export function NotFoundView() {
         >
           404
         </p>
-        <h1 className="mt-6 text-2xl font-bold sm:text-3xl">الصفحة غير موجودة</h1>
+        <h1 className="mt-6 text-2xl font-bold sm:text-3xl">{t.notFound.title}</h1>
         <p className="mt-3 max-w-md text-sm leading-7 text-muted sm:text-base">
-          ربما تغيّر الرابط أو لم يعد هذا المنتج متاحاً. جرّب البحث أو عُد إلى الصفحة الرئيسية.
+          {t.notFound.text}
         </p>
         <SearchForm size="lg" className="mt-8 w-full max-w-lg" />
         <Link href="/" className="btn-ghost mt-4">
-          العودة للرئيسية
+          {t.common.backHome}
         </Link>
       </div>
     </section>

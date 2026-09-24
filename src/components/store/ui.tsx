@@ -1,6 +1,7 @@
-import type { ProductType } from "@prisma/client";
-import { formatPrice, productTypeLabel } from "@/lib/format";
-import { ProductTypeIcon } from "./icons";
+import { formatPrice } from "@/lib/format";
+
+export { StockIndicator, TypeBadge } from "./labels";
+export { LOW_STOCK_THRESHOLD, type StockState, stockState } from "./stock";
 
 /** Prices are Latin-digit, LTR runs isolated from the surrounding Arabic text. */
 export function Price({
@@ -17,42 +18,6 @@ export function Price({
       {formatPrice(cents, currency)}
     </span>
   );
-}
-
-export function TypeBadge({ type, className = "" }: { type: ProductType; className?: string }) {
-  return (
-    <span className={`badge gap-1 bg-volt/10 text-volt ring-1 ring-volt/25 ring-inset ${className}`}>
-      <ProductTypeIcon type={type} className="size-3.5" />
-      {productTypeLabel[type]}
-    </span>
-  );
-}
-
-export type StockState = "in" | "low" | "out" | "manual";
-
-export function StockIndicator({ state, count }: { state: StockState; count?: number }) {
-  const styles: Record<StockState, { dot: string; text: string; label: string }> = {
-    in: { dot: "bg-success", text: "text-success", label: "متوفر" },
-    low: { dot: "bg-volt", text: "text-volt", label: count ? `متبقٍ ${count} فقط` : "كمية محدودة" },
-    out: { dot: "bg-muted/60", text: "text-muted", label: "نفدت الكمية" },
-    manual: { dot: "bg-volt", text: "text-volt", label: "تسليم يدوي" },
-  };
-  const s = styles[state];
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${s.text}`}>
-      <span className={`size-1.5 rounded-full ${s.dot}`} aria-hidden="true" />
-      {s.label}
-    </span>
-  );
-}
-
-export const LOW_STOCK_THRESHOLD = 5;
-
-export function stockState(type: ProductType, available: number): StockState {
-  if (type === "SERVICE") return "manual";
-  if (available <= 0) return "out";
-  if (available <= LOW_STOCK_THRESHOLD) return "low";
-  return "in";
 }
 
 export function SectionHeading({

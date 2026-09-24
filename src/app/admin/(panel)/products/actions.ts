@@ -47,6 +47,7 @@ const costSchema = z
 const variantSchema = z.object({
   id: idSchema.optional(),
   label: z.string().trim().min(1, "اسم الخيار مطلوب").max(80, "الاسم طويل جداً"),
+  labelEn: z.string().trim().max(80, "الاسم الإنجليزي طويل جداً").optional().default(""),
   price: priceSchema,
   cost: costSchema,
   sortOrder: z.coerce.number("أدخل رقماً").int("رقم صحيح").min(-10000).max(10000),
@@ -70,10 +71,12 @@ const productSchema = z
   .object({
     id: idSchema.optional(),
     name: z.string().trim().min(1, "اسم المنتج مطلوب").max(120, "الاسم طويل جداً"),
+    nameEn: z.string().trim().max(120, "الاسم الإنجليزي طويل جداً"),
     slug: z.string().trim().max(120, "الرابط طويل جداً"),
     categoryId: z.string().trim().min(1, "اختر فئة").pipe(idSchema),
     type: z.enum(ProductType, "اختر نوع المنتج"),
     description: z.string().trim().max(5000, "الوصف طويل جداً"),
+    descriptionEn: z.string().trim().max(5000, "الوصف الإنجليزي طويل جداً"),
     imageUrl: imageUrlSchema,
     active: z.boolean(),
     featured: z.boolean(),
@@ -119,10 +122,12 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
   const parsed = productSchema.safeParse({
     id: str(formData, "id") || undefined,
     name: str(formData, "name"),
+    nameEn: str(formData, "nameEn"),
     slug: str(formData, "slug"),
     categoryId: str(formData, "categoryId"),
     type: str(formData, "type"),
     description: str(formData, "description"),
+    descriptionEn: str(formData, "descriptionEn"),
     imageUrl: str(formData, "imageUrl"),
     active: formData.get("active") === "on",
     featured: formData.get("featured") === "on",
@@ -140,10 +145,12 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
 
   const productData = {
     name: input.name,
+    nameEn: input.nameEn || null,
     slug,
     categoryId: input.categoryId,
     type: input.type,
     description: input.description || null,
+    descriptionEn: input.descriptionEn || null,
     imageUrl: input.imageUrl || null,
     active: input.active,
     featured: input.featured,
@@ -159,7 +166,7 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
           data: {
             ...productData,
             variants: {
-              create: input.variants.map((v) => ({ label: v.label, priceCents: v.price, costCents: v.cost, sortOrder: v.sortOrder })),
+              create: input.variants.map((v) => ({ label: v.label, labelEn: v.labelEn || null, priceCents: v.price, costCents: v.cost, sortOrder: v.sortOrder })),
             },
           },
           select: { id: true },
@@ -212,7 +219,7 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
       if (removed.length) await tx.productVariant.deleteMany({ where: { id: { in: removed.map((v) => v.id) } } });
       const before = new Map(existing.map((v) => [v.id, v]));
       for (const v of input.variants) {
-        const data = { label: v.label, priceCents: v.price, costCents: v.cost, sortOrder: v.sortOrder };
+        const data = { label: v.label, labelEn: v.labelEn || null, priceCents: v.price, costCents: v.cost, sortOrder: v.sortOrder };
         if (v.id) await tx.productVariant.update({ where: { id: v.id }, data });
         else await tx.productVariant.create({ data: { ...data, productId: input.id } });
         const old = v.id ? before.get(v.id) : undefined;

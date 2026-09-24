@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { loadMoreReviews } from "@/app/(store)/product/[slug]/actions";
 import type { PublicReview } from "@/app/(store)/_lib/reviews";
+import { useT } from "@/i18n/client";
 import { IconAlert, IconChevronDown, IconShieldCheck, IconSpinner } from "./icons";
 import { LocalTime } from "./local-time";
 import { Stars } from "./stars";
@@ -16,6 +17,7 @@ export function ReviewList({
   initial: PublicReview[];
   initialHasMore: boolean;
 }) {
+  const t = useT();
   const [reviews, setReviews] = useState(initial);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [failed, setFailed] = useState(false);
@@ -55,7 +57,7 @@ export function ReviewList({
                     <bdi className="truncate">{review.authorName}</bdi>
                     <span className="badge gap-1 bg-success/10 px-2 text-[11px] text-success ring-1 ring-success/25 ring-inset">
                       <IconShieldCheck className="size-3" />
-                      مشتري موثّق
+                      {t.reviewList.verified}
                     </span>
                   </p>
                   <p className="mt-0.5 text-xs text-muted">
@@ -77,7 +79,7 @@ export function ReviewList({
       {failed ? (
         <p role="alert" className="mt-3 flex items-center gap-2 text-sm text-danger">
           <IconAlert className="size-4" />
-          تعذّر تحميل المزيد من التقييمات. حاول مرة أخرى.
+          {t.reviewList.loadFailed}
         </p>
       ) : null}
 
@@ -85,7 +87,7 @@ export function ReviewList({
         <div className="mt-4 flex justify-center">
           <button type="button" onClick={more} disabled={pending} className="btn-ghost">
             {pending ? <IconSpinner className="size-4" /> : <IconChevronDown className="size-4" />}
-            عرض المزيد من التقييمات
+            {t.reviewList.more}
           </button>
         </div>
       ) : null}

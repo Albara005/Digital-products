@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { audit, type AuditActor } from "@/lib/audit";
+import { DEFAULT_RATES, DISPLAY_CURRENCIES, type DisplayCurrency } from "@/lib/display-currency";
 
 /*
  * Admin-editable store settings, one StoreSetting row per key (value = JSON object).
@@ -34,23 +35,46 @@ const storeSchema = z.object({
   lowStockThreshold: z.number().int("أدخل رقماً صحيحاً").min(0, "لا يكون سالباً").max(10_000, "الرقم كبير جداً"),
 });
 
+const rateSchema = z
+  .number("أدخل سعر صرف صالحاً")
+  .positive("سعر الصرف يجب أن يكون أكبر من صفر")
+  .max(1_000_000, "سعر الصرف كبير جداً");
+
+/**
+ * Display currencies for the storefront (approximate prices only; checkout always charges USD).
+ * `rates` = units of each currency per 1 USD.
+ */
+const currenciesSchema = z.object({
+  enabled: z
+    .array(z.enum(DISPLAY_CURRENCIES))
+    .max(DISPLAY_CURRENCIES.length)
+    .transform((list) => DISPLAY_CURRENCIES.filter((c) => list.includes(c))),
+  rates: z.object(
+    Object.fromEntries(DISPLAY_CURRENCIES.map((c) => [c, rateSchema])) as Record<DisplayCurrency, typeof rateSchema>,
+  ),
+});
+
 export type ReferralSettings = z.infer<typeof referralSchema>;
 export type StoreSettings = z.infer<typeof storeSchema>;
+export type CurrencySettings = z.infer<typeof currenciesSchema>;
 
 export type Settings = {
   referral: ReferralSettings;
   store: StoreSettings;
+  currencies: CurrencySettings;
 };
 export type SettingKey = keyof Settings;
 
 export const SETTING_DEFAULTS: Settings = {
   referral: { enabled: true, rewardType: "PERCENT", rewardValue: 5, maxRewardCents: 1000, minOrderCents: 1000 },
   store: { lowStockThreshold: 5 },
+  currencies: { enabled: [...DISPLAY_CURRENCIES], rates: { ...DEFAULT_RATES } },
 };
 
 const schemas: { [K in SettingKey]: z.ZodType<Settings[K]> } = {
   referral: referralSchema,
   store: storeSchema,
+  currencies: currenciesSchema,
 };
 
 const KEYS = Object.keys(SETTING_DEFAULTS) as SettingKey[];
@@ -89,6 +113,7 @@ export async function getSettings(): Promise<Settings> {
   return {
     referral: resolve("referral", byKey.get("referral")),
     store: resolve("store", byKey.get("store")),
+    currencies: resolve("currencies", byKey.get("currencies")),
   };
 }
 

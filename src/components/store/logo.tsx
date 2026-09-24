@@ -1,9 +1,11 @@
 import Image from "next/image";
-import Link from "next/link";
+import { getDictionary } from "@/i18n/server";
+import Link from "./link";
 
-export function Logo({ priority = false }: { priority?: boolean }) {
+export async function Logo({ priority = false }: { priority?: boolean }) {
+  const t = await getDictionary();
   return (
-    <Link href="/" aria-label="Nitro Store — الرئيسية" className="group flex shrink-0 items-center gap-2">
+    <Link href="/" aria-label={t.headerNav.logoHome} className="group flex shrink-0 items-center gap-2">
       {/* The artwork sits on black; screen blending drops the box against any dark surface. */}
       <span className="relative size-10 overflow-hidden">
         <Image

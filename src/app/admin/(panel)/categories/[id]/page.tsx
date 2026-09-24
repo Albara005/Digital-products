@@ -14,7 +14,16 @@ export default async function EditCategoryPage({ params }: PageProps<"/admin/cat
   const { id } = await params;
   const category = await prisma.category.findUnique({
     where: { id },
-    select: { id: true, name: true, slug: true, description: true, sortOrder: true, _count: { select: { products: true } } },
+    select: {
+      id: true,
+      name: true,
+      nameEn: true,
+      slug: true,
+      description: true,
+      descriptionEn: true,
+      sortOrder: true,
+      _count: { select: { products: true } },
+    },
   });
   if (!category) notFound();
 
@@ -31,8 +40,10 @@ export default async function EditCategoryPage({ params }: PageProps<"/admin/cat
           category={{
             id: category.id,
             name: category.name,
+            nameEn: category.nameEn,
             slug: category.slug,
             description: category.description,
+            descriptionEn: category.descriptionEn,
             sortOrder: category.sortOrder,
           }}
         />

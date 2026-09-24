@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useT } from "@/i18n/client";
 import { IconCheck, IconCopy } from "./icons";
 
 function legacyCopy(text: string) {
@@ -18,7 +19,8 @@ function legacyCopy(text: string) {
   }
 }
 
-export function CopyButton({ text, label = "نسخ" }: { text: string; label?: string }) {
+export function CopyButton({ text, label }: { text: string; label?: string }) {
+  const t = useT();
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -48,7 +50,7 @@ export function CopyButton({ text, label = "نسخ" }: { text: string; label?: s
       }`}
     >
       {state === "copied" ? <IconCheck className="size-3.5" /> : <IconCopy className="size-3.5" />}
-      <span aria-live="polite">{state === "copied" ? "تم النسخ" : state === "failed" ? "انسخ يدوياً" : label}</span>
+      <span aria-live="polite">{state === "copied" ? t.copy.copied : state === "failed" ? t.copy.failed : (label ?? t.copy.copy)}</span>
     </button>
   );
 }

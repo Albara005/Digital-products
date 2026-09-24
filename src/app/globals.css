@@ -13,6 +13,13 @@
   --muted: #9ca3af;
   --danger: #ff4d4d;
   --success: #4ade80;
+  /* Body text: Arabic first (unchanged); the English storefront switches to Inter below. */
+  --font-body: var(--font-arabic), var(--font-display), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* English (LTR) storefront: Inter for text, Arabic glyphs (e.g. untranslated names) still fall back to Plex Arabic. */
+html:lang(en) {
+  --font-body: var(--font-latin), var(--font-arabic), ui-sans-serif, system-ui, sans-serif;
 }
 
 @theme inline {
@@ -27,7 +34,7 @@
   --color-muted: var(--muted);
   --color-danger: var(--danger);
   --color-success: var(--success);
-  --font-sans: var(--font-arabic), var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-body);
   --font-display: var(--font-display), var(--font-arabic), ui-sans-serif, sans-serif;
 }
 
@@ -38,6 +45,14 @@ html {
 body {
   background: var(--bg);
   color: var(--text);
+}
+
+/* English headings use the display face (Space Grotesk); utilities such as font-display still win. */
+@layer base {
+  html:lang(en) :is(h1, h2, h3) {
+    font-family: var(--font-display), var(--font-latin), var(--font-arabic), ui-sans-serif, sans-serif;
+    letter-spacing: -0.01em;
+  }
 }
 
 ::selection {

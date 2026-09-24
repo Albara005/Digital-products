@@ -1,11 +1,10 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { formatDate } from "@/lib/format";
+import { useLocale } from "@/i18n/client";
+import { formatDate, formatDay } from "@/lib/format";
 
 const noopSubscribe = () => () => {};
-
-const dateOnlyFormat = new Intl.DateTimeFormat("ar", { dateStyle: "medium" });
 
 function utcFallback(date: Date, dateOnly: boolean) {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -24,18 +23,19 @@ export function LocalTime({
 }: {
   iso: string;
   className?: string;
-  /** Day precision only ("24 سبتمبر 2026"). */
+  /** Day precision only ("24 سبتمبر 2026" / "Sep 24, 2026"). */
   dateOnly?: boolean;
 }) {
   const isClient = useSyncExternalStore(noopSubscribe, () => true, () => false);
+  const locale = useLocale();
   const date = new Date(iso);
   return (
     <time dateTime={iso} className={className}>
       {isClient ? (
         dateOnly ? (
-          dateOnlyFormat.format(date)
+          formatDay(date, locale)
         ) : (
-          formatDate(date)
+          formatDate(date, locale)
         )
       ) : (
         <span dir="ltr">{utcFallback(date, dateOnly)}</span>

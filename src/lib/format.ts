@@ -1,13 +1,20 @@
 import type { OrderStatus, ProductType } from "@prisma/client";
+import { type Locale, intlLocale } from "@/i18n/config";
 
 export function formatPrice(cents: number, currency = "USD") {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(cents / 100);
 }
 
-export function formatDate(date: Date | string) {
-  return new Intl.DateTimeFormat("ar", { dateStyle: "medium", timeStyle: "short" }).format(new Date(date));
+/** Date and time in the given locale (Latin digits in Arabic too). Defaults to Arabic (admin panel). */
+export function formatDate(date: Date | string, locale: Locale = "ar") {
+  return new Intl.DateTimeFormat(intlLocale(locale), { dateStyle: "medium", timeStyle: "short" }).format(new Date(date));
 }
 
+export function formatDay(date: Date | string, locale: Locale = "ar") {
+  return new Intl.DateTimeFormat(intlLocale(locale), { dateStyle: "medium" }).format(new Date(date));
+}
+
+// Admin-panel labels (Arabic). The storefront uses the dictionaries in src/i18n instead.
 export const productTypeLabel: Record<ProductType, string> = {
   CARD: "بطاقة",
   SUBSCRIPTION: "اشتراك",

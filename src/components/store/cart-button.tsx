@@ -1,16 +1,18 @@
 "use client";
 
-import Link from "next/link";
+import { useT } from "@/i18n/client";
 import { useCart } from "./cart-provider";
 import { IconBag } from "./icons";
+import Link from "./link";
 
 export function CartButton() {
   const { count, ready } = useCart();
+  const t = useT();
   const shown = ready && count > 0;
   return (
     <Link
       href="/cart"
-      aria-label={shown ? `السلة (${count})` : "السلة"}
+      aria-label={shown ? t.header.cartCount(count) : t.header.cart}
       className="relative grid size-10 place-items-center rounded-lg border border-border bg-surface text-text transition hover:border-volt hover:text-volt"
     >
       <IconBag className="size-5" />

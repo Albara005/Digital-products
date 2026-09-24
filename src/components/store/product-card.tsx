@@ -1,12 +1,13 @@
-import Link from "next/link";
 import type { ProductCardData } from "@/app/(store)/_lib/queries";
+import { type Dictionary, getDictionary } from "@/i18n/server";
+import { Approx } from "./currency";
 import { IconArrow, IconStar } from "./icons";
+import Link from "./link";
 import { ProductMedia } from "./product-media";
-import { productHref } from "./site";
-import { formatRating, reviewCountLabel } from "./stars";
+import { formatRating, productHref } from "./site";
 import { Price, StockIndicator, TypeBadge, stockState } from "./ui";
 
-export function ProductCard({ product, priority = false }: { product: ProductCardData; priority?: boolean }) {
+function ProductCard({ product, priority = false, t }: { product: ProductCardData; priority?: boolean; t: Dictionary }) {
   const state = stockState(product.type, product.available);
   const soldOut = state === "out";
 
@@ -36,7 +37,7 @@ export function ProductCard({ product, priority = false }: { product: ProductCar
         {product.rating ? (
           <p className="-mt-1 flex items-center gap-1 text-xs text-muted">
             <span className="sr-only">
-              التقييم {formatRating(product.rating.average)} من 5، {reviewCountLabel(product.rating.count)}
+              {t.productCard.rating(formatRating(product.rating.average), t.common.reviewCount(product.rating.count))}
             </span>
             <IconStar filled className="size-3.5 text-volt" />
             <span aria-hidden="true" dir="ltr" className="font-display font-bold text-text tabular-nums">
@@ -49,13 +50,14 @@ export function ProductCard({ product, priority = false }: { product: ProductCar
         ) : null}
 
         <div className="mt-auto flex items-end justify-between gap-2 pt-1">
-          <div className="flex flex-col">
-            {product.hasPriceRange ? <span className="text-[11px] text-muted">يبدأ من</span> : null}
+          <div className="flex min-w-0 flex-col">
+            {product.hasPriceRange ? <span className="text-[11px] text-muted">{t.productCard.from}</span> : null}
             <Price
               cents={product.fromPrice.cents}
               currency={product.fromPrice.currency}
               className="text-base text-text sm:text-lg"
             />
+            <Approx cents={product.fromPrice.cents} currency={product.fromPrice.currency} className="mt-0.5" />
           </div>
           <span
             aria-hidden="true"
@@ -69,12 +71,13 @@ export function ProductCard({ product, priority = false }: { product: ProductCar
   );
 }
 
-export function ProductGrid({ products, priorityCount = 0 }: { products: ProductCardData[]; priorityCount?: number }) {
+export async function ProductGrid({ products, priorityCount = 0 }: { products: ProductCardData[]; priorityCount?: number }) {
+  const t = await getDictionary();
   return (
     <ul className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
       {products.map((p, i) => (
         <li key={p.id} className="flex">
-          <ProductCard product={p} priority={i < priorityCount} />
+          <ProductCard product={p} priority={i < priorityCount} t={t} />
         </li>
       ))}
     </ul>

@@ -5,15 +5,18 @@ import { TicketView } from "@/components/store/tickets/ticket-view";
 import { getSignedInCustomer } from "../../../_lib/session";
 import { authorizeTicket, loadTicketThread } from "../../../_lib/tickets";
 import { orderPagePath } from "@/lib/email";
+import { getDictionary } from "@/i18n/server";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "تذكرة دعم",
-  robots: { index: false, follow: false },
-  // The URL carries the ticket's access token: never leak it through the Referer header.
-  referrer: "no-referrer",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: (await getDictionary()).tickets.ticketTitle,
+    robots: { index: false, follow: false },
+    // The URL carries the ticket's access token: never leak it through the Referer header.
+    referrer: "no-referrer",
+  };
+}
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -39,5 +42,6 @@ export default async function GuestTicketPage({ params, searchParams }: Props) {
       }
     : null;
 
-  return <TicketView ticket={ticket} token={token} back={{ href: "/support", label: "الدعم الفني" }} order={order} />;
+  const t = await getDictionary();
+  return <TicketView ticket={ticket} token={token} back={{ href: "/support", label: t.tickets.backSupport }} order={order} />;
 }

@@ -1,16 +1,19 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MAX_LINE_QUANTITY } from "@/lib/cart";
 import { siteUrl } from "@/lib/email";
 import { IconBolt, IconHeadset, IconLock, IconShieldCheck, IconSparkles, IconStar } from "@/components/store/icons";
+import Link from "@/components/store/link";
 import { ProductGrid } from "@/components/store/product-card";
 import { ProductMedia } from "@/components/store/product-media";
 import { PurchasePanel } from "@/components/store/purchase-panel";
 import { ReviewList } from "@/components/store/review-list";
-import { categoryHref, decodeSlug, formatWarranty, productHref, truncate } from "@/components/store/site";
-import { Stars, formatRating, reviewCountLabel } from "@/components/store/stars";
+import { categoryHref, decodeSlug, formatRating, productHref, truncate } from "@/components/store/site";
+import { Stars } from "@/components/store/stars";
 import { EmptyState, SectionHeading, TypeBadge } from "@/components/store/ui";
+import { localizePath } from "@/i18n/config";
+import { alternates } from "@/i18n/metadata";
+import { type Dictionary, getDictionary, getLocale } from "@/i18n/server";
 import { getProductBySlug, getRelatedProducts } from "../../_lib/queries";
 import { type RatingBreakdown, getApprovedReviews, getRatingBreakdown } from "../../_lib/reviews";
 
@@ -20,15 +23,13 @@ type Props = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const product = await getProductBySlug(decodeSlug(slug));
-  if (!product) return { title: "المنتج غير موجود" };
-  const description = product.description
-    ? truncate(product.description, 160)
-    : `اشترِ ${product.name} من Nitro Store — دفع آمن وتسليم فوري على مدار الساعة.`;
+  const [product, t] = await Promise.all([getProductBySlug(decodeSlug(slug)), getDictionary()]);
+  if (!product) return { title: t.product.notFound };
+  const description = product.description ? truncate(product.description, 160) : t.product.metaDescription(product.name);
   return {
     title: product.name,
     description,
-    alternates: { canonical: productHref(product.slug) },
+    alternates: await alternates(productHref(product.slug)),
     openGraph: {
       title: product.name,
       description,
@@ -43,25 +44,27 @@ export default async function ProductPage({ params }: Props) {
   const product = await getProductBySlug(decodeSlug(slug));
   if (!product) notFound();
 
-  const [related, rating, firstReviews] = await Promise.all([
+  const [related, rating, firstReviews, t, locale] = await Promise.all([
     getRelatedProducts(product.categoryId, product.id, 4),
     getRatingBreakdown(product.id),
     getApprovedReviews(product.id, 0),
+    getDictionary(),
+    getLocale(),
   ]);
   const isService = product.type === "SERVICE";
-  const warranty = product.type === "ACCOUNT" && product.warrantyHours ? formatWarranty(product.warrantyHours) : null;
+  const warranty = product.type === "ACCOUNT" && product.warrantyHours ? t.common.warranty(product.warrantyHours) : null;
 
   const highlights = [
     isService
-      ? { icon: IconSparkles, title: "تسليم يدوي", text: "ينفّذ فريقنا الخدمة بعد الدفع ونحدّث صفحة طلبك فور الانتهاء." }
-      : { icon: IconBolt, title: "تسليم فوري", text: "يظهر المنتج على صفحة طلبك فور تأكيد الدفع." },
+      ? { icon: IconSparkles, title: t.product.manualTitle, text: t.product.manualText }
+      : { icon: IconBolt, title: t.product.instantTitle, text: t.product.instantText },
     warranty
-      ? { icon: IconShieldCheck, title: `ضمان ${warranty}`, text: "يبدأ من لحظة التسليم؛ نستبدل الحساب أو نعيد المبلغ إن لم يعمل كما هو موصوف." }
-      : { icon: IconLock, title: "دفع آمن", text: "بوابة دفع مشفّرة، ولا نخزّن بيانات بطاقتك." },
-    { icon: IconHeadset, title: "دعم 24/7", text: "تواجه مشكلة؟ تواصل معنا وسنساعدك بسرعة." },
+      ? { icon: IconShieldCheck, title: t.product.warrantyTitle(warranty), text: t.product.warrantyText }
+      : { icon: IconLock, title: t.product.secureTitle, text: t.product.secureText },
+    { icon: IconHeadset, title: t.product.supportTitle, text: t.product.supportText },
   ];
 
-  const jsonLd = productJsonLd(product, rating);
+  const jsonLd = productJsonLd(product, rating, localizePath(productHref(product.slug), locale));
 
   return (
     <div className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 sm:pt-10">
@@ -70,9 +73,9 @@ export default async function ProductPage({ params }: Props) {
         // Escaping "<" keeps product text from ever closing the script tag.
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
-      <nav aria-label="مسار التنقل" className="mb-6 flex flex-wrap items-center gap-2 text-xs text-muted">
+      <nav aria-label={t.common.breadcrumb} className="mb-6 flex flex-wrap items-center gap-2 text-xs text-muted">
         <Link href="/" className="hover:text-volt">
-          الرئيسية
+          {t.common.home}
         </Link>
         <span aria-hidden="true">/</span>
         <Link href={categoryHref(product.category.slug)} className="hover:text-volt">
@@ -102,13 +105,13 @@ export default async function ProductPage({ params }: Props) {
             {warranty ? (
               <span className="badge gap-1 bg-surface-2 text-text ring-1 ring-border ring-inset">
                 <IconShieldCheck className="size-3.5 text-volt" />
-                ضمان {warranty}
+                {t.product.warrantyTitle(warranty)}
               </span>
             ) : null}
             {isService ? (
               <span className="badge gap-1 bg-surface-2 text-text ring-1 ring-border ring-inset">
                 <IconSparkles className="size-3.5 text-volt" />
-                يُسلَّم يدوياً
+                {t.product.manualBadge}
               </span>
             ) : null}
           </div>
@@ -124,7 +127,7 @@ export default async function ProductPage({ params }: Props) {
               <span dir="ltr" className="font-display font-bold text-text tabular-nums">
                 {formatRating(rating.average)}
               </span>
-              <span className="underline decoration-border underline-offset-4">({reviewCountLabel(rating.count)})</span>
+              <span className="underline decoration-border underline-offset-4">({t.common.reviewCount(rating.count)})</span>
             </a>
           ) : null}
 
@@ -142,7 +145,7 @@ export default async function ProductPage({ params }: Props) {
                 }))}
               />
             ) : (
-              <p className="card p-5 text-sm text-muted">هذا المنتج غير متاح للشراء حالياً.</p>
+              <p className="card p-5 text-sm text-muted">{t.product.unavailable}</p>
             )}
           </div>
 
@@ -162,26 +165,26 @@ export default async function ProductPage({ params }: Props) {
 
           {product.description ? (
             <section className="mt-10">
-              <h2 className="text-lg font-bold">الوصف</h2>
+              <h2 className="text-lg font-bold">{t.product.description}</h2>
               <p className="mt-3 text-sm leading-8 whitespace-pre-line text-muted sm:text-base">{product.description}</p>
             </section>
           ) : null}
         </div>
       </div>
 
-      <section id="reviews" aria-label="تقييمات العملاء" className="scroll-mt-32 pt-16 sm:pt-24">
-        <SectionHeading eyebrow="Reviews" title="تقييمات العملاء" description="تقييمات من مشترين موثّقين استلموا طلباتهم." />
+      <section id="reviews" aria-label={t.product.reviewsTitle} className="scroll-mt-32 pt-16 sm:pt-24">
+        <SectionHeading eyebrow="Reviews" title={t.product.reviewsTitle} description={t.product.reviewsText} />
         {rating.count === 0 ? (
           <div className="mt-8">
             <EmptyState
               icon={<IconStar className="size-7" />}
-              title="لا توجد تقييمات بعد"
-              description="بعد استلام طلبك يمكنك تقييم المنتج من صفحة الطلب، وسيظهر تقييمك هنا بعد المراجعة."
+              title={t.product.noReviewsTitle}
+              description={t.product.noReviewsText}
             />
           </div>
         ) : (
           <div className="mt-8 grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start">
-            <RatingSummaryCard rating={rating} />
+            <RatingSummaryCard rating={rating} t={t} />
             <ReviewList productId={product.id} initial={firstReviews.reviews} initialHasMore={firstReviews.hasMore} />
           </div>
         )}
@@ -191,10 +194,10 @@ export default async function ProductPage({ params }: Props) {
         <section className="pt-16 sm:pt-24">
           <SectionHeading
             eyebrow="More"
-            title={`المزيد من ${product.category.name}`}
+            title={t.product.moreFrom(product.category.name)}
             action={
               <Link href={categoryHref(product.category.slug)} className="btn-ghost">
-                عرض الكل
+                {t.product.viewAll}
               </Link>
             }
           />
@@ -207,7 +210,7 @@ export default async function ProductPage({ params }: Props) {
   );
 }
 
-function RatingSummaryCard({ rating }: { rating: RatingBreakdown }) {
+function RatingSummaryCard({ rating, t }: { rating: RatingBreakdown; t: Dictionary }) {
   return (
     <div className="card p-5 lg:sticky lg:top-32">
       <div className="flex items-center gap-4">
@@ -216,10 +219,10 @@ function RatingSummaryCard({ rating }: { rating: RatingBreakdown }) {
         </p>
         <div>
           <Stars value={rating.average} className="size-5" />
-          <p className="mt-1 text-xs text-muted">{reviewCountLabel(rating.count)}</p>
+          <p className="mt-1 text-xs text-muted">{t.common.reviewCount(rating.count)}</p>
         </div>
       </div>
-      <ul className="mt-5 space-y-2" aria-label="توزيع التقييمات">
+      <ul className="mt-5 space-y-2" aria-label={t.product.distribution}>
         {[5, 4, 3, 2, 1].map((stars) => {
           const n = rating.distribution[stars - 1];
           const pct = rating.count ? Math.round((n / rating.count) * 100) : 0;
@@ -237,9 +240,7 @@ function RatingSummaryCard({ rating }: { rating: RatingBreakdown }) {
               <span dir="ltr" className="w-9 shrink-0 text-end font-display text-muted tabular-nums">
                 {pct}%
               </span>
-              <span className="sr-only">
-                {stars} نجوم: {n}
-              </span>
+              <span className="sr-only">{t.product.starsCount(stars, n)}</span>
             </li>
           );
         })}
@@ -251,9 +252,9 @@ function RatingSummaryCard({ rating }: { rating: RatingBreakdown }) {
 type ProductForJsonLd = NonNullable<Awaited<ReturnType<typeof getProductBySlug>>>;
 
 /** schema.org Product for rich results; aggregateRating only when there are approved reviews. */
-function productJsonLd(product: ProductForJsonLd, rating: RatingBreakdown) {
+function productJsonLd(product: ProductForJsonLd, rating: RatingBreakdown, path: string) {
   const base = siteUrl();
-  const url = `${base}${productHref(product.slug)}`;
+  const url = `${base}${path}`;
   const currency = product.variants[0]?.currency ?? "USD";
   const prices = product.variants.filter((v) => v.currency === currency).map((v) => v.priceCents / 100);
   const inStock = product.type === "SERVICE" || product.variants.some((v) => v.available > 0);

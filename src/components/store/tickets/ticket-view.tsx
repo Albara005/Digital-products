@@ -1,6 +1,7 @@
-import Link from "next/link";
 import type { TicketStatus } from "@prisma/client";
+import { getDictionary } from "@/i18n/server";
 import { IconArrow, IconCheck, IconReceipt } from "../icons";
+import Link from "../link";
 import { LocalTime } from "../local-time";
 import { TicketReplyForm } from "./ticket-reply-form";
 import { type ThreadMessage, TicketMessages, TicketStatusBadge, shortTicketId } from "./ticket-ui";
@@ -14,7 +15,7 @@ export type TicketViewData = {
 };
 
 /** Full thread page body, shared by the guest link and the account page. */
-export function TicketView({
+export async function TicketView({
   ticket,
   token,
   back,
@@ -29,6 +30,7 @@ export function TicketView({
   order: { shortId: string; href: string | null } | null;
   created?: boolean;
 }) {
+  const t = await getDictionary();
   return (
     <div className="mx-auto max-w-3xl px-4 pt-8 sm:px-6 sm:pt-12">
       <Link href={back.href} className="inline-flex items-center gap-1.5 text-xs text-muted transition hover:text-volt">
@@ -50,7 +52,7 @@ export function TicketView({
         </div>
         <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-border pt-4 text-xs text-muted">
           <div className="flex gap-1.5">
-            <dt>أُنشئت:</dt>
+            <dt>{t.tickets.created}</dt>
             <dd className="text-text">
               <LocalTime iso={ticket.createdAt.toISOString()} />
             </dd>
@@ -59,7 +61,7 @@ export function TicketView({
             <div className="flex items-center gap-1.5">
               <dt className="flex items-center gap-1">
                 <IconReceipt className="size-3.5" />
-                الطلب:
+                {t.tickets.orderLabel}
               </dt>
               <dd>
                 {order.href ? (
@@ -80,17 +82,17 @@ export function TicketView({
       {created ? (
         <p role="status" className="mt-4 flex items-center gap-2 rounded-xl border border-success/40 bg-success/10 p-4 text-sm text-success">
           <IconCheck className="size-4 shrink-0" />
-          تم إرسال تذكرتك. سنرد عليك هنا ونرسل لك إشعاراً بالبريد.
+          {t.tickets.createdNotice}
         </p>
       ) : null}
 
-      <section aria-label="المحادثة" className="mt-6">
+      <section aria-label={t.tickets.conversation} className="mt-6">
         <TicketMessages messages={ticket.messages} />
       </section>
 
-      <section aria-label="الرد" className="card mt-6 p-4 sm:p-5">
+      <section aria-label={t.tickets.reply} className="card mt-6 p-4 sm:p-5">
         {ticket.status === "CLOSED" ? (
-          <p className="mb-3 text-sm text-muted">هذه التذكرة مغلقة. إن عادت المشكلة، أرسل رداً وسنعيد فتحها.</p>
+          <p className="mb-3 text-sm text-muted">{t.tickets.closedNotice}</p>
         ) : null}
         <TicketReplyForm ticketId={ticket.id} token={token} status={ticket.status} />
       </section>

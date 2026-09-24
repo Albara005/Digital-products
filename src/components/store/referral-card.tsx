@@ -1,3 +1,4 @@
+import { getDictionary } from "@/i18n/server";
 import { formatPrice } from "@/lib/format";
 import { CopyButton } from "./copy-button";
 import { IconChat, IconGift } from "./icons";
@@ -14,14 +15,13 @@ export type ReferralCardData = {
 };
 
 /** "Invite your friends" card on /account: share link, rule and the customer's referral totals. */
-export function ReferralCard({ data }: { data: ReferralCardData }) {
-  const whatsapp = data.link
-    ? `https://wa.me/?text=${encodeURIComponent(`تسوّق بطاقات الألعاب والاشتراكات من Nitro Store بتسليم فوري: ${data.link}`)}`
-    : null;
+export async function ReferralCard({ data }: { data: ReferralCardData }) {
+  const t = await getDictionary();
+  const whatsapp = data.link ? `https://wa.me/?text=${encodeURIComponent(t.referral.share(data.link))}` : null;
   const stats = [
-    { label: "أصدقاء دعوتهم", value: String(data.invited) },
-    { label: "مكافآت مستحقة", value: String(data.rewarded) },
-    { label: "إجمالي الأرباح", value: formatPrice(data.earnedCents, WALLET_CURRENCY) },
+    { label: t.referral.invited, value: String(data.invited) },
+    { label: t.referral.rewarded, value: String(data.rewarded) },
+    { label: t.referral.earned, value: formatPrice(data.earnedCents, WALLET_CURRENCY) },
   ];
 
   return (
@@ -37,9 +37,9 @@ export function ReferralCard({ data }: { data: ReferralCardData }) {
           </span>
           <div className="min-w-0">
             <h2 id="referral-title" className="font-bold">
-              ادعُ أصدقاءك
+              {t.referral.title}
             </h2>
-            <p className="mt-0.5 text-sm leading-7 text-muted">{data.link ? data.rule : "برنامج الإحالة متوقف مؤقتاً."}</p>
+            <p className="mt-0.5 text-sm leading-7 text-muted">{data.link ? data.rule : t.referral.paused}</p>
           </div>
         </div>
       </div>
@@ -50,12 +50,12 @@ export function ReferralCard({ data }: { data: ReferralCardData }) {
             <code dir="ltr" className="min-w-0 flex-1 truncate px-1 text-sm text-text">
               {data.link}
             </code>
-            <CopyButton text={data.link} label="نسخ الرابط" />
+            <CopyButton text={data.link} label={t.copy.copyLink} />
           </div>
           {whatsapp ? (
             <a href={whatsapp} target="_blank" rel="noopener noreferrer" className="btn-ghost h-11 shrink-0">
               <IconChat className="size-4" />
-              مشاركة عبر واتساب
+              {t.referral.whatsapp}
             </a>
           ) : null}
         </div>
@@ -76,7 +76,7 @@ export function ReferralCard({ data }: { data: ReferralCardData }) {
           <span dir="ltr" className="font-display font-bold text-text">
             {data.pending}
           </span>{" "}
-          مكافأة بانتظار تسليم طلب صديقك.
+          {t.referral.pending}
         </p>
       ) : null}
     </section>

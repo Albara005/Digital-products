@@ -1,14 +1,24 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { ContentPage, ContentSection } from "@/components/store/content-page";
+import Link from "@/components/store/link";
 import { SITE_NAME, SUPPORT_EMAIL } from "@/components/store/site";
+import { alternates } from "@/i18n/metadata";
+import { getLocale } from "@/i18n/server";
 
-export const metadata: Metadata = {
-  title: "الشروط والأحكام",
-  description: "الشروط والأحكام المنظِّمة لاستخدام Nitro Store وشراء المنتجات الرقمية.",
+const meta = {
+  ar: { title: "الشروط والأحكام", description: "الشروط والأحكام المنظِّمة لاستخدام Nitro Store وشراء المنتجات الرقمية." },
+  en: { title: "Terms & Conditions", description: "The terms and conditions governing the use of Nitro Store and the purchase of digital products." },
 };
 
-export default function TermsPage() {
+export async function generateMetadata(): Promise<Metadata> {
+  return { ...meta[await getLocale()], alternates: await alternates("/terms") };
+}
+
+export default async function TermsPage() {
+  return (await getLocale()) === "en" ? <EnglishTerms /> : <ArabicTerms />;
+}
+
+function ArabicTerms() {
   return (
     <ContentPage
       eyebrow="Terms"
@@ -69,6 +79,76 @@ export default function TermsPage() {
             {SUPPORT_EMAIL}
           </a>{" "}
           أو عبر <Link href="/contact">صفحة التواصل</Link>.
+        </p>
+      </ContentSection>
+    </ContentPage>
+  );
+}
+
+function EnglishTerms() {
+  return (
+    <ContentPage
+      eyebrow="Terms"
+      title="Terms & Conditions"
+      description={`By using ${SITE_NAME} or placing any order, you agree to the following terms.`}
+    >
+      <ContentSection n={1} title="About the store">
+        <p>
+          {SITE_NAME} is an online store selling digital products: gift cards and game top-ups, subscriptions, ready-made
+          accounts and digital services. All products are delivered electronically — nothing is shipped physically.
+        </p>
+      </ContentSection>
+
+      <ContentSection n={2} title="Orders and delivery">
+        <ul>
+          <li>Codes and accounts in stock are delivered automatically on your order page as soon as payment is confirmed, and the page link is emailed to you.</li>
+          <li>Services are carried out manually after payment; turnaround time depends on the type of service.</li>
+          <li>You are responsible for entering a correct email address and for keeping your order page link private.</li>
+          <li>We may cancel and refund any order in case of a pricing error, stock running out or suspected fraud.</li>
+        </ul>
+      </ContentSection>
+
+      <ContentSection n={3} title="Prices and payment">
+        <ul>
+          <li>Prices are final and set in US dollars, the currency you are charged in. Prices shown in other currencies are approximate and for reference only. Prices may change without notice before an order is placed.</li>
+          <li>Payments are processed through a secure, encrypted payment gateway, and we never store your card details.</li>
+          <li>Any fees charged by your bank (such as currency conversion fees) are the customer&apos;s responsibility.</li>
+        </ul>
+      </ContentSection>
+
+      <ContentSection n={4} title="Using the products">
+        <ul>
+          <li>Check the region and platform before buying; some cards only work in a specific region or store.</li>
+          <li>Products are for personal use, and their use is subject to the terms of the platform or publisher that owns them.</li>
+          <li>Trademarks and the names of games and platforms belong to their respective owners; we claim no official affiliation with them.</li>
+        </ul>
+      </ContentSection>
+
+      <ContentSection n={5} title="Accounts and warranty">
+        <p>
+          Ready-made accounts are covered by a warranty for the period shown on the product page, starting from delivery. The
+          customer must follow the usage instructions provided; the warranty does not cover problems caused by ignoring them or
+          by breaking the platform&apos;s terms. Replacement and refund details are in our{" "}
+          <Link href="/refund-policy">Refund Policy</Link>.
+        </p>
+      </ContentSection>
+
+      <ContentSection n={6} title="Limitation of liability">
+        <p>
+          Our liability is in all cases limited to the amount paid for the order. We are not responsible for any damage
+          resulting from sharing codes or account details with others, or from decisions made after delivery by the platforms
+          that own the products.
+        </p>
+      </ContentSection>
+
+      <ContentSection n={7} title="Changes and contact">
+        <p>
+          We may update these terms from time to time; the version published when you place your order applies. For any
+          questions, email us at{" "}
+          <a href={`mailto:${SUPPORT_EMAIL}`} dir="ltr">
+            {SUPPORT_EMAIL}
+          </a>{" "}
+          or use our <Link href="/contact">contact page</Link>.
         </p>
       </ContentSection>
     </ContentPage>

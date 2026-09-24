@@ -1,19 +1,22 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useT } from "@/i18n/client";
+import { splitLocale } from "@/i18n/config";
+import Link from "./link";
 import { categoryHref, decodeSlug } from "./site";
 
 export type NavCategory = { id: string; name: string; slug: string };
 
-export function CategoryNav({ categories }: { categories: NavCategory[] }) {
-  const pathname = usePathname();
+export function CategoryNav({ categories, className = "" }: { categories: NavCategory[]; className?: string }) {
+  const pathname = splitLocale(usePathname() ?? "/").path;
+  const t = useT();
   if (categories.length === 0) return null;
 
   const activeSlug = pathname.startsWith("/category/") ? decodeSlug(pathname.split("/")[2] ?? "") : null;
 
   return (
-    <nav aria-label="الأقسام" className="border-t border-border/60">
+    <nav aria-label={t.header.categories} className={className}>
       <ul className="mx-auto flex max-w-7xl gap-1.5 overflow-x-auto px-4 py-2 [scrollbar-width:none] sm:px-6 [&::-webkit-scrollbar]:hidden">
         {categories.map((c) => {
           const active = c.slug === activeSlug;

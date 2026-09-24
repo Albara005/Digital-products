@@ -1,4 +1,5 @@
 // Storefront constants and small pure helpers (safe for server and client).
+import { splitLocale } from "@/i18n/config";
 
 export const SITE_NAME = "Nitro Store";
 
@@ -32,19 +33,9 @@ export function firstParam(value: string | string[] | undefined): string | undef
   return Array.isArray(value) ? value[0] : value;
 }
 
-function arabicCount(n: number, one: string, two: string, few: string, many: string) {
-  if (n === 1) return one;
-  if (n === 2) return two;
-  if (n >= 3 && n <= 10) return `${n} ${few}`;
-  return `${n} ${many}`;
-}
-
-/** "48" → "يومان", "72" → "3 أيام", "12" → "12 ساعة". */
-export function formatWarranty(hours: number) {
-  if (hours >= 24 && hours % 24 === 0) {
-    return arabicCount(hours / 24, "يوم واحد", "يومان", "أيام", "يوماً");
-  }
-  return arabicCount(hours, "ساعة واحدة", "ساعتان", "ساعات", "ساعة");
+/** "4.6" style average: one decimal, Latin digits. */
+export function formatRating(value: number) {
+  return (Math.round(value * 10) / 10).toFixed(1);
 }
 
 /** Short Latin initials for placeholder tiles ("Steam Wallet" → "SW"). */
@@ -82,7 +73,8 @@ export function safeNextPath(raw: string | null | undefined, fallback = "/accoun
     const base = "http://nitro.invalid";
     const url = new URL(raw, base);
     if (url.origin !== base) return fallback;
-    if (url.pathname === "/login" || url.pathname.startsWith("/login/")) return fallback;
+    const path = splitLocale(url.pathname).path;
+    if (path === "/login" || path.startsWith("/login/")) return fallback;
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return fallback;
@@ -97,9 +89,9 @@ export const MAX_TICKET_BODY = 5000;
 export const MAX_REVIEW_NAME = 40;
 
 /** Public reviewer name derived from an email: "ahmed@x.com" → "ahm***". */
-export function maskedDisplayName(email: string): string {
+export function maskedDisplayName(email: string, fallback: string): string {
   const local = Array.from(email.split("@")[0]?.trim() ?? "");
-  if (local.length === 0) return "عميل";
+  if (local.length === 0) return fallback;
   const keep = local.length <= 3 ? 1 : 3;
   return `${local.slice(0, keep).join("")}***`;
 }

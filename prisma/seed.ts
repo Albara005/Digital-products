@@ -3,6 +3,8 @@
  * - Creates the first SUPER_ADMIN from ADMIN_EMAIL / ADMIN_PASSWORD (never changes an existing admin).
  * - Creates the four categories and sample products if they are missing (existing rows are left as-is,
  *   so admin edits survive re-runs). Set SEED_SAMPLE_PRODUCTS=false to skip the sample catalogue.
+ * - Fills the English storefront fields (nameEn / descriptionEn / labelEn) of those rows only where they
+ *   are still empty, so English text edited in the admin panel is never overwritten.
  * - Adds obviously fake DEMO stock only to stock variants that have never had any stock.
  * - Creates the sample coupon WELCOME10 (10%, max $5 off) if no coupon with that code exists.
  *
@@ -52,12 +54,14 @@ function demoAccount(game: string, n: number): string {
 type SeedProduct = {
   slug: string;
   name: string;
+  nameEn: string;
   category: string;
   type: ProductType;
   featured?: boolean;
   warrantyHours?: number;
   description: string;
-  variants: { label: string; priceCents: number }[];
+  descriptionEn: string;
+  variants: { label: string; labelEn: string; priceCents: number }[];
 };
 
 const categories = [
@@ -67,103 +71,147 @@ const categories = [
   { slug: "digital-services", name: "خدمات رقمية", description: "خدمات تصميم وتطوير وتحسين حسابات ينفذها فريقنا يدوياً.", sortOrder: 4 },
 ];
 
+// English storefront text for the sample catalogue; only filled in where the English field is still empty.
+const categoriesEn: Record<string, { nameEn: string; descriptionEn: string }> = {
+  "game-cards": {
+    nameEn: "Game Cards",
+    descriptionEn: "Top-up and gift cards for the biggest game stores — your code arrives the moment you pay.",
+  },
+  subscriptions: {
+    nameEn: "Subscriptions",
+    descriptionEn: "Gaming and app subscriptions at great prices, activated instantly.",
+  },
+  "game-accounts": {
+    nameEn: "Game Accounts",
+    descriptionEn: "Ready-to-play game accounts with a warranty — login details delivered right after payment.",
+  },
+  "digital-services": {
+    nameEn: "Digital Services",
+    descriptionEn: "Design, development and account boosting services, carried out by hand by our team.",
+  },
+};
+
 const products: SeedProduct[] = [
   {
     slug: "playstation-store-card",
     name: "بطاقة PlayStation Store",
+    nameEn: "PlayStation Store Gift Card",
     category: "game-cards",
     type: "CARD",
     featured: true,
     description:
       "بطاقة رصيد PlayStation Store (المتجر الأمريكي). اشحن محفظة حسابك واشترِ الألعاب والإضافات واشتراكات PlayStation Plus. يصلك الكود فوراً بعد إتمام الدفع.",
+    descriptionEn:
+      "PlayStation Store credit (US store). Top up your account wallet to buy games, add-ons and PlayStation Plus memberships. Your code is delivered instantly after payment.",
     variants: [
-      { label: "10 دولار", priceCents: 1099 },
-      { label: "25 دولار", priceCents: 2649 },
-      { label: "50 دولار", priceCents: 5249 },
+      { label: "10 دولار", labelEn: "$10", priceCents: 1099 },
+      { label: "25 دولار", labelEn: "$25", priceCents: 2649 },
+      { label: "50 دولار", labelEn: "$50", priceCents: 5249 },
     ],
   },
   {
     slug: "steam-wallet-card",
     name: "بطاقة Steam Wallet",
+    nameEn: "Steam Wallet Card",
     category: "game-cards",
     type: "CARD",
     featured: true,
     description:
       "رصيد محفظة Steam لشراء الألعاب والمحتوى الإضافي من أكبر متجر ألعاب على الكمبيوتر. الكود صالح للحسابات بالدولار الأمريكي ويُسلَّم فوراً.",
+    descriptionEn:
+      "Steam Wallet credit for games and extra content from the biggest PC game store. The code works on US-dollar accounts and is delivered instantly.",
     variants: [
-      { label: "5 دولار", priceCents: 549 },
-      { label: "20 دولار", priceCents: 2149 },
-      { label: "50 دولار", priceCents: 5299 },
+      { label: "5 دولار", labelEn: "$5", priceCents: 549 },
+      { label: "20 دولار", labelEn: "$20", priceCents: 2149 },
+      { label: "50 دولار", labelEn: "$50", priceCents: 5299 },
     ],
   },
   {
     slug: "xbox-game-pass-ultimate",
     name: "اشتراك Xbox Game Pass Ultimate",
+    nameEn: "Xbox Game Pass Ultimate Subscription",
     category: "subscriptions",
     type: "SUBSCRIPTION",
     featured: true,
     description:
       "العب مئات الألعاب على Xbox والكمبيوتر والسحابة، مع Xbox Live Gold وEA Play. كود تفعيل رسمي يُضاف مباشرة إلى حسابك.",
+    descriptionEn:
+      "Play hundreds of games on Xbox, PC and the cloud, with Xbox Live Gold and EA Play included. An official activation code that's added straight to your account.",
     variants: [
-      { label: "شهر واحد", priceCents: 1799 },
-      { label: "3 أشهر", priceCents: 4999 },
+      { label: "شهر واحد", labelEn: "1 month", priceCents: 1799 },
+      { label: "3 أشهر", labelEn: "3 months", priceCents: 4999 },
     ],
   },
   {
     slug: "discord-nitro",
     name: "اشتراك Discord Nitro",
+    nameEn: "Discord Nitro Subscription",
     category: "subscriptions",
     type: "SUBSCRIPTION",
     description:
       "استمتع بمزايا Discord Nitro: رفع ملفات أكبر، بث بجودة عالية، ملصقات وإيموجي مخصصة، وتعزيزان لسيرفرك المفضل. رابط تفعيل فوري.",
-    variants: [{ label: "شهر واحد", priceCents: 999 }],
+    descriptionEn:
+      "Enjoy Discord Nitro perks: bigger uploads, HD streaming, custom stickers and emoji, and two boosts for your favourite server. Instant activation link.",
+    variants: [{ label: "شهر واحد", labelEn: "1 month", priceCents: 999 }],
   },
   {
     slug: "fortnite-account",
     name: "حساب Fortnite",
+    nameEn: "Fortnite Account",
     category: "game-accounts",
     type: "ACCOUNT",
     featured: true,
     warrantyHours: 48,
     description:
       "حساب Fortnite جاهز مع مجموعة سكنات مميزة، مع إمكانية تغيير البريد وكلمة المرور. ضمان لمدة 48 ساعة ضد أي مشكلة في تسجيل الدخول.",
+    descriptionEn:
+      "A ready-to-play Fortnite account with a great skin collection; you can change the email and password. 48-hour warranty against any sign-in problem.",
     variants: [
-      { label: "حساب مع 50+ سكن", priceCents: 3999 },
-      { label: "حساب نادر (سكنات OG)", priceCents: 9999 },
+      { label: "حساب مع 50+ سكن", labelEn: "Account with 50+ skins", priceCents: 3999 },
+      { label: "حساب نادر (سكنات OG)", labelEn: "Rare account (OG skins)", priceCents: 9999 },
     ],
   },
   {
     slug: "valorant-account",
     name: "حساب Valorant",
+    nameEn: "Valorant Account",
     category: "game-accounts",
     type: "ACCOUNT",
     warrantyHours: 24,
     description:
       "حساب Valorant بمستوى مرتفع وجاهز للعب التنافسي على سيرفرات أوروبا، مع إمكانية تغيير بيانات الدخول. ضمان لمدة 24 ساعة.",
-    variants: [{ label: "رانك بلاتينيوم - سيرفر أوروبا", priceCents: 2999 }],
+    descriptionEn:
+      "A high-level Valorant account ready for competitive play on EU servers, with changeable login details. 24-hour warranty.",
+    variants: [{ label: "رانك بلاتينيوم - سيرفر أوروبا", labelEn: "Platinum rank - EU server", priceCents: 2999 }],
   },
   {
     slug: "pro-logo-design",
     name: "تصميم شعار احترافي",
+    nameEn: "Professional Logo Design",
     category: "digital-services",
     type: "SERVICE",
     description:
       "تصميم شعار احترافي لقناتك أو فريقك أو متجرك على يد مصممين محترفين، مع تعديلات مجانية وتسليم خلال 3 أيام عمل. نتواصل معك بعد الطلب لاستلام التفاصيل.",
+    descriptionEn:
+      "A professional logo for your channel, team or store, crafted by experienced designers, with free revisions and delivery within 3 business days. We'll contact you after your order to get the details.",
     variants: [
-      { label: "الباقة الأساسية - تصميمان", priceCents: 1999 },
-      { label: "الباقة الاحترافية - 4 تصاميم + ملفات المصدر", priceCents: 4999 },
+      { label: "الباقة الأساسية - تصميمان", labelEn: "Basic package - 2 concepts", priceCents: 1999 },
+      { label: "الباقة الاحترافية - 4 تصاميم + ملفات المصدر", labelEn: "Pro package - 4 concepts + source files", priceCents: 4999 },
     ],
   },
   {
     slug: "account-boosting",
     name: "تسريع وتحسين حساب الألعاب",
+    nameEn: "Game Account Boosting",
     category: "digital-services",
     type: "SERVICE",
     description:
       "خدمة رفع الرتبة وتحسين حسابك في الألعاب التنافسية بأيدي لاعبين محترفين وبسرية تامة. يتواصل معك فريقنا بعد الطلب لترتيب التنفيذ.",
+    descriptionEn:
+      "Rank boosting and account improvement in competitive games by professional players, with complete discretion. Our team will contact you after your order to arrange it.",
     variants: [
-      { label: "رفع رتبة واحدة", priceCents: 1500 },
-      { label: "رفع 3 رتب", priceCents: 3999 },
+      { label: "رفع رتبة واحدة", labelEn: "1 rank up", priceCents: 1500 },
+      { label: "رفع 3 رتب", labelEn: "3 ranks up", priceCents: 3999 },
     ],
   },
 ];
@@ -204,6 +252,12 @@ async function seedCatalogue() {
       select: { id: true },
     });
     categoryIds.set(category.slug, row.id);
+    const en = categoriesEn[category.slug];
+    if (en) {
+      // Fill-only: never overwrite English text an admin has written
+      await prisma.category.updateMany({ where: { id: row.id, nameEn: null }, data: { nameEn: en.nameEn } });
+      await prisma.category.updateMany({ where: { id: row.id, descriptionEn: null }, data: { descriptionEn: en.descriptionEn } });
+    }
   }
   console.log(`= ${categories.length} categories ready`);
 
@@ -222,7 +276,9 @@ async function seedCatalogue() {
       create: {
         slug: p.slug,
         name: p.name,
+        nameEn: p.nameEn,
         description: p.description,
+        descriptionEn: p.descriptionEn,
         type: p.type,
         featured: p.featured ?? false,
         warrantyHours: p.warrantyHours ?? null,
@@ -231,14 +287,17 @@ async function seedCatalogue() {
       update: {},
       select: { id: true, type: true },
     });
+    await prisma.product.updateMany({ where: { id: product.id, nameEn: null }, data: { nameEn: p.nameEn } });
+    await prisma.product.updateMany({ where: { id: product.id, descriptionEn: null }, data: { descriptionEn: p.descriptionEn } });
 
     for (const [index, v] of p.variants.entries()) {
       const variant =
         (await prisma.productVariant.findFirst({ where: { productId: product.id, label: v.label }, select: { id: true } })) ??
         (await prisma.productVariant.create({
-          data: { productId: product.id, label: v.label, priceCents: v.priceCents, currency: "USD", sortOrder: index },
+          data: { productId: product.id, label: v.label, labelEn: v.labelEn, priceCents: v.priceCents, currency: "USD", sortOrder: index },
           select: { id: true },
         }));
+      await prisma.productVariant.updateMany({ where: { id: variant.id, labelEn: null }, data: { labelEn: v.labelEn } });
 
       // Stock only for delivered-from-stock types, and only if the variant never had any
       if (!key || product.type === "SERVICE") continue;

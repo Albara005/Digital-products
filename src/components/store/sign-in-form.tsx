@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { signInAction, type SignInState } from "@/app/(store)/login/actions";
+import { useT } from "@/i18n/client";
 import { IconAlert, IconArrow, IconMail, IconSpinner } from "./icons";
 import { latinDigits } from "./site";
 
@@ -26,6 +27,7 @@ function useSecondsLeft(until: number | null) {
 
 export function SignInForm({ next }: { next: string }) {
   const [state, formAction, pending] = useActionState(signInAction, initialState);
+  const t = useT();
   const [email, setEmail] = useState("");
   // The response (attempt) at which the customer chose to change their email.
   const [editingAt, setEditingAt] = useState<number | null>(null);
@@ -44,12 +46,12 @@ export function SignInForm({ next }: { next: string }) {
     return (
       <form action={formAction} className="mt-5 space-y-4">
         <p className="text-sm leading-7 text-muted">
-          لا تحتاج إلى كلمة مرور. أدخل بريدك الإلكتروني وسنرسل لك رمز دخول من 6 أرقام.
+          {t.signIn.intro}
         </p>
         <input type="hidden" name="intent" value="send" />
         <div>
           <label htmlFor="signin-email" className="label">
-            البريد الإلكتروني
+            {t.signIn.email}
           </label>
           <input
             id="signin-email"
@@ -72,12 +74,12 @@ export function SignInForm({ next }: { next: string }) {
           {pending ? (
             <>
               <IconSpinner className="size-4" />
-              جارٍ الإرسال…
+              {t.signIn.sending}
             </>
           ) : (
             <>
               <IconMail className="size-4" />
-              أرسل الرمز
+              {t.signIn.send}
             </>
           )}
         </button>
@@ -88,11 +90,11 @@ export function SignInForm({ next }: { next: string }) {
   return (
     <div className="mt-5 space-y-4">
       <p className="text-sm leading-7 text-muted">
-        أرسلنا رمزاً من 6 أرقام إلى{" "}
+        {t.signIn.sentTo}{" "}
         <bdi dir="ltr" className="font-semibold text-text">
           {state.email}
         </bdi>
-        . قد يستغرق وصوله دقيقة؛ تحقّق أيضاً من مجلد الرسائل غير المرغوب فيها.
+        {t.signIn.sentHint}
       </p>
 
       <form action={formAction} className="space-y-4">
@@ -100,7 +102,7 @@ export function SignInForm({ next }: { next: string }) {
         <input type="hidden" name="next" value={next} />
         <div>
           <label htmlFor="signin-code" className="label">
-            رمز الدخول
+            {t.signIn.code}
           </label>
           <input
             // A new response (e.g. a wrong code) remounts an empty, focused field.
@@ -126,7 +128,7 @@ export function SignInForm({ next }: { next: string }) {
             className="input h-14 text-center font-display text-2xl font-bold tracking-[0.5em] tabular-nums placeholder:tracking-[0.5em]"
           />
           <p id="signin-code-hint" className="mt-1.5 text-xs text-muted">
-            الرمز صالح لمدة 10 دقائق. يمكنك لصقه مباشرة.
+            {t.signIn.codeHint}
           </p>
         </div>
         {error}
@@ -134,11 +136,11 @@ export function SignInForm({ next }: { next: string }) {
           {pending ? (
             <>
               <IconSpinner className="size-4" />
-              جارٍ التحقق…
+              {t.signIn.verifying}
             </>
           ) : (
             <>
-              تأكيد الدخول
+              {t.signIn.verify}
               <IconArrow className="size-4" />
             </>
           )}
@@ -155,14 +157,14 @@ export function SignInForm({ next }: { next: string }) {
           >
             {secondsLeft > 0 ? (
               <>
-                إعادة الإرسال بعد{" "}
+                {t.signIn.resendIn}{" "}
                 <span dir="ltr" className="font-display tabular-nums">
                   {secondsLeft}
                 </span>{" "}
-                ث
+                {t.signIn.seconds}
               </>
             ) : (
-              "إعادة إرسال الرمز"
+              t.signIn.resend
             )}
           </button>
         </form>
@@ -175,7 +177,7 @@ export function SignInForm({ next }: { next: string }) {
           disabled={pending}
           className="text-muted underline decoration-border underline-offset-4 transition hover:text-text hover:decoration-volt"
         >
-          تغيير البريد
+          {t.signIn.changeEmail}
         </button>
       </div>
     </div>

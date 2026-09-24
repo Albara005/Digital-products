@@ -1,51 +1,52 @@
-import Link from "next/link";
+import { getDictionary } from "@/i18n/server";
 import { IconBolt, IconHeadset, IconLock, IconShieldCheck } from "./icons";
+import Link from "./link";
 import { Logo } from "./logo";
+import { FooterPreferences } from "./preferences";
 import { SITE_NAME, SUPPORT_EMAIL } from "./site";
 
-const columns = [
-  {
-    title: "المساعدة",
-    links: [
-      { href: "/faq", label: "الأسئلة الشائعة" },
-      { href: "/contact", label: "تواصل معنا" },
-      { href: "/support", label: "تذاكر الدعم" },
-      { href: "/cart", label: "سلة المشتريات" },
-    ],
-  },
-  {
-    title: "السياسات",
-    links: [
-      { href: "/terms", label: "الشروط والأحكام" },
-      { href: "/refund-policy", label: "سياسة الاسترجاع" },
-    ],
-  },
-];
-
-export function StoreFooter() {
+export async function StoreFooter() {
+  const t = await getDictionary();
   const year = new Date().getFullYear();
+  const columns = [
+    {
+      title: t.footer.help,
+      links: [
+        { href: "/faq", label: t.footer.faq },
+        { href: "/contact", label: t.footer.contact },
+        { href: "/support", label: t.footer.support },
+        { href: "/cart", label: t.footer.cart },
+      ],
+    },
+    {
+      title: t.footer.policies,
+      links: [
+        { href: "/terms", label: t.footer.terms },
+        { href: "/refund-policy", label: t.footer.refund },
+      ],
+    },
+  ];
   return (
     <footer className="relative mt-20 overflow-hidden border-t border-border bg-surface/40">
       <div className="mx-auto grid max-w-7xl gap-10 px-4 py-12 sm:px-6 md:grid-cols-[1.4fr_1fr_1fr]">
         <div className="space-y-4">
           <Logo />
-          <p className="max-w-sm text-sm leading-7 text-muted">
-            بطاقات ألعاب، اشتراكات، حسابات وخدمات رقمية — دفع آمن وتسليم فوري للأكواد على مدار الساعة.
-          </p>
+          <p className="max-w-sm text-sm leading-7 text-muted">{t.footer.tagline}</p>
           <ul className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted">
             <li className="flex items-center gap-1.5">
-              <IconBolt className="size-3.5 text-volt" /> تسليم فوري
+              <IconBolt className="size-3.5 text-volt" /> {t.footer.instant}
             </li>
             <li className="flex items-center gap-1.5">
-              <IconLock className="size-3.5 text-volt" /> دفع مشفّر
+              <IconLock className="size-3.5 text-volt" /> {t.footer.encrypted}
             </li>
             <li className="flex items-center gap-1.5">
-              <IconShieldCheck className="size-3.5 text-volt" /> ضمان الحسابات
+              <IconShieldCheck className="size-3.5 text-volt" /> {t.footer.warranty}
             </li>
             <li className="flex items-center gap-1.5">
-              <IconHeadset className="size-3.5 text-volt" /> دعم 24/7
+              <IconHeadset className="size-3.5 text-volt" /> {t.footer.support247}
             </li>
           </ul>
+          <FooterPreferences label={t.footer.preferences} />
         </div>
 
         {columns.map((col) => (
@@ -77,7 +78,7 @@ export function StoreFooter() {
       <div className="relative border-t border-border bg-bg/60">
         <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-5 text-xs text-muted sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <p>
-            © <span dir="ltr">{year}</span> {SITE_NAME}. جميع الحقوق محفوظة.
+            © <span dir="ltr">{year}</span> {SITE_NAME}. {t.footer.rights}
           </p>
           <a href={`mailto:${SUPPORT_EMAIL}`} dir="ltr" className="transition hover:text-volt">
             {SUPPORT_EMAIL}

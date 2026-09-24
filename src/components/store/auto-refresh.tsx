@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useT } from "@/i18n/client";
 import { IconRefresh } from "./icons";
 
 /**
@@ -10,6 +11,7 @@ import { IconRefresh } from "./icons";
  */
 export function AutoRefresh({ intervalMs = 4000, maxMs = 120_000 }: { intervalMs?: number; maxMs?: number }) {
   const router = useRouter();
+  const t = useT();
   const [round, setRound] = useState(0);
   const [expired, setExpired] = useState(false);
 
@@ -38,7 +40,7 @@ export function AutoRefresh({ intervalMs = 4000, maxMs = 120_000 }: { intervalMs
         className="btn-ghost h-9 px-3 text-xs"
       >
         <IconRefresh className="size-4" />
-        تحديث الحالة
+        {t.autoRefresh.refresh}
       </button>
     );
   }
@@ -49,7 +51,7 @@ export function AutoRefresh({ intervalMs = 4000, maxMs = 120_000 }: { intervalMs
         <span className="absolute inline-flex size-full animate-ping rounded-full bg-volt opacity-70" />
         <span className="relative inline-flex size-2 rounded-full bg-volt" />
       </span>
-      يتم التحديث تلقائياً
+      {t.autoRefresh.auto}
     </span>
   );
 }

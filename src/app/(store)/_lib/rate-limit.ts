@@ -50,7 +50,3 @@ export async function requestIp(): Promise<string> {
   return h.get("x-real-ip")?.trim() || h.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 }
 
-export function minutesLabel(seconds: number) {
-  const m = Math.max(1, Math.ceil(seconds / 60));
-  return m === 1 ? "دقيقة" : m === 2 ? "دقيقتين" : m <= 10 ? `${m} دقائق` : `${m} دقيقة`;
-}

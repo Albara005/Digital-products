@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { FormAction, FormState } from "@/app/admin/_lib/form-state";
+import { DISPLAY_CURRENCIES, type DisplayCurrency } from "@/lib/display-currency";
 import { FieldError, FormMessage } from "../ui";
 import { useFormAction } from "../useFormAction";
 
@@ -216,6 +217,87 @@ export function StoreSettingsForm({ action, lowStockThreshold }: { action: FormA
       <div>
         <button type="submit" className="btn-primary" disabled={pending}>
           {pending ? "جارٍ الحفظ…" : "حفظ"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+const CURRENCY_NAMES: Record<DisplayCurrency, string> = {
+  SAR: "ريال سعودي",
+  AED: "درهم إماراتي",
+  KWD: "دينار كويتي",
+  QAR: "ريال قطري",
+  BHD: "دينار بحريني",
+  OMR: "ريال عماني",
+  EGP: "جنيه مصري",
+};
+
+/** Storefront display currencies: which ones shoppers may pick, and the rate per 1 USD. */
+export function CurrencySettingsForm({
+  action,
+  enabled,
+  rates,
+}: {
+  action: FormAction;
+  enabled: DisplayCurrency[];
+  rates: Record<DisplayCurrency, number>;
+}) {
+  const [state, form, pending] = useFormAction(action);
+  return (
+    <form {...form} noValidate className="flex flex-col gap-4">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[420px] text-sm">
+          <thead>
+            <tr className="text-xs text-muted">
+              <th className="pb-2 text-start font-medium">العملة</th>
+              <th className="pb-2 text-start font-medium">تظهر للعملاء</th>
+              <th className="pb-2 text-start font-medium">السعر مقابل 1 دولار</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {DISPLAY_CURRENCIES.map((code) => (
+              <tr key={code}>
+                <td className="py-2.5 pe-3">
+                  <span className="font-display font-semibold" dir="ltr">
+                    {code}
+                  </span>
+                  <span className="ms-2 text-xs text-muted">{CURRENCY_NAMES[code]}</span>
+                </td>
+                <td className="py-2.5 pe-3">
+                  <input
+                    type="checkbox"
+                    name="enabled"
+                    value={code}
+                    defaultChecked={enabled.includes(code)}
+                    aria-label={`إظهار ${CURRENCY_NAMES[code]}`}
+                    className="size-4 accent-volt"
+                  />
+                </td>
+                <td className="py-2.5">
+                  <input
+                    name={`rate_${code}`}
+                    dir="ltr"
+                    inputMode="decimal"
+                    defaultValue={String(rates[code])}
+                    aria-label={`سعر ${CURRENCY_NAMES[code]} مقابل الدولار`}
+                    aria-invalid={Boolean(state?.errors?.[`rate_${code}`])}
+                    className="input max-w-36 text-left font-display"
+                  />
+                  <FieldError state={state} name={`rate_${code}`} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs leading-relaxed text-muted">
+        تُعرض الأسعار المحوّلة للعملاء كقيمة تقريبية («≈») بجانب السعر بالدولار فقط. الدفع والمبالغ المسجّلة تبقى بالدولار دائماً.
+      </p>
+      <FormMessage state={state} />
+      <div>
+        <button type="submit" className="btn-primary" disabled={pending}>
+          {pending ? "جارٍ الحفظ…" : "حفظ العملات"}
         </button>
       </div>
     </form>

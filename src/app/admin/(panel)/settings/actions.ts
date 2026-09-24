@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { updateSettings, type SettingsPatch } from "@/lib/settings";
+import { DISPLAY_CURRENCIES, type DisplayCurrency } from "@/lib/display-currency";
 import type { FormState } from "../../_lib/form-state";
 import { requireAdminAccess } from "../../_lib/guard";
 import { fail, fromZod, ok, str } from "../../_lib/validation";
@@ -68,6 +69,24 @@ const storeForm = z.object({
     .transform(Number),
 });
 
+const RATE = /^\d{1,7}(\.\d{1,6})?$/;
+
+const currenciesForm = z.object({
+  enabled: z.array(z.enum(DISPLAY_CURRENCIES)),
+  rates: z.object(
+    Object.fromEntries(
+      DISPLAY_CURRENCIES.map((c) => [
+        c,
+        z
+          .string()
+          .trim()
+          .refine((v) => RATE.test(v) && Number(v) > 0, "سعر صرف غير صالح (مثال: 3.75)")
+          .transform(Number),
+      ]),
+    ) as Record<DisplayCurrency, z.ZodPipe<z.ZodString, z.ZodTransform<number, string>>>,
+  ),
+});
+
 // Library errors are keyed "referral.rewardValue"; the form fields are named without the prefix.
 function saveError(error: z.ZodError): FormState {
   const state = fromZod(error);
@@ -75,7 +94,9 @@ function saveError(error: z.ZodError): FormState {
   const errors: Record<string, string> = {};
   for (const [k, v] of Object.entries(state.errors)) {
     const field = k.split(".").slice(1).join(".") || k;
-    const mapped = { rewardValue: "rewardValue", maxRewardCents: "maxReward", minOrderCents: "minOrder" }[field] ?? field;
+    const mapped =
+      { rewardValue: "rewardValue", maxRewardCents: "maxReward", minOrderCents: "minOrder" }[field] ??
+      (field.startsWith("rates.") ? `rate_${field.slice(6)}` : field);
     errors[mapped] = v;
   }
   return { ...state, errors };
@@ -109,4 +130,21 @@ export async function saveStoreSettings(_prev: FormState, formData: FormData): P
   if (!parsed.success) return fromZod(parsed.error);
   if (parsed.data.lowStockThreshold > 10_000) return fail("الرقم كبير جداً.", { lowStockThreshold: "الرقم كبير جداً" });
   return save({ store: parsed.data });
+}
+
+/** Display currencies (storefront "≈" prices only; payments always stay in USD). */
+export async function saveCurrencySettings(_prev: FormState, formData: FormData): Promise<FormState> {
+  await requireAdminAccess("SUPER_ADMIN");
+  const parsed = currenciesForm.safeParse({
+    enabled: formData.getAll("enabled").filter((v): v is string => typeof v === "string"),
+    rates: Object.fromEntries(DISPLAY_CURRENCIES.map((c) => [c, str(formData, `rate_${c}`)])),
+  });
+  if (!parsed.success) {
+    const state = fromZod(parsed.error);
+    if (!state?.errors) return state;
+    const errors: Record<string, string> = {};
+    for (const [k, v] of Object.entries(state.errors)) errors[k.startsWith("rates.") ? `rate_${k.slice(6)}` : k] = v;
+    return { ...state, errors };
+  }
+  return save({ currencies: parsed.data });
 }

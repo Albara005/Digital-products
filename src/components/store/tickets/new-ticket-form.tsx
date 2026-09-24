@@ -1,10 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { startTransition, useActionState, useId, useState } from "react";
 import { type NewTicketState, createTicketAction } from "@/app/(store)/support/actions";
+import { useLocalePath, useT } from "@/i18n/client";
 import { CopyButton } from "../copy-button";
 import { IconAlert, IconArrow, IconCheck, IconSpinner } from "../icons";
+import Link from "../link";
 import { MAX_TICKET_BODY, MAX_TICKET_SUBJECT } from "../site";
 
 export type TicketFormMode =
@@ -15,6 +16,8 @@ export type TicketFormMode =
 
 export function NewTicketForm({ mode }: { mode: TicketFormMode }) {
   const id = useId();
+  const t = useT();
+  const localePath = useLocalePath();
   const [state, dispatch, pending] = useActionState<NewTicketState, FormData>(createTicketAction, null);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -30,25 +33,22 @@ export function NewTicketForm({ mode }: { mode: TicketFormMode }) {
 
   if (state?.ok && state.link) {
     // Only rendered after a submission, so reading window here never affects hydration
-    const url = new URL(state.link, window.location.href).toString();
+    const url = new URL(localePath(state.link), window.location.href).toString();
     return (
       <div role="status" className="space-y-4">
         <p className="flex items-center gap-2 text-lg font-bold text-success">
           <IconCheck className="size-5 shrink-0" />
-          تم إرسال تذكرتك
+          {t.ticketForm.sent}
         </p>
-        <p className="text-sm leading-7 text-muted">
-          احفظ هذا الرابط لمتابعة تذكرتك والرد علينا، وأرسلناه أيضاً إلى بريدك. سنرسل لك إشعاراً بالبريد عند الرد.
-          الرابط خاص بك — لا تشاركه مع أحد.
-        </p>
+        <p className="text-sm leading-7 text-muted">{t.ticketForm.saveLink}</p>
         <div className="flex items-center gap-2 rounded-lg border border-border bg-bg p-2">
           <code dir="ltr" className="min-w-0 flex-1 truncate px-1 text-xs text-muted">
             {url}
           </code>
-          <CopyButton text={url} label="نسخ الرابط" />
+          <CopyButton text={url} label={t.copy.copyLink} />
         </div>
         <Link href={state.link} className="btn-primary">
-          فتح التذكرة
+          {t.ticketForm.openTicket}
           <IconArrow className="size-4" />
         </Link>
       </div>
@@ -64,11 +64,11 @@ export function NewTicketForm({ mode }: { mode: TicketFormMode }) {
           <input type="hidden" name="orderId" value={mode.orderId} />
           <input type="hidden" name="orderToken" value={mode.orderToken} />
           <p className="rounded-lg border border-volt/25 bg-volt/[0.06] p-3 text-sm leading-7">
-            بخصوص الطلب{" "}
+            {t.ticketForm.aboutOrder}{" "}
             <span dir="ltr" className="font-display font-bold">
               {mode.orderLabel}
             </span>
-            . سنرد على بريد الطلب{" "}
+            {t.ticketForm.replyToOrderEmail}{" "}
             <bdi dir="ltr" className="font-semibold">
               {mode.maskedEmail}
             </bdi>
@@ -80,7 +80,7 @@ export function NewTicketForm({ mode }: { mode: TicketFormMode }) {
       {mode.kind === "guest" ? (
         <div>
           <label htmlFor={`${id}-email`} className="label">
-            بريدك الإلكتروني
+            {t.ticketForm.yourEmail}
           </label>
           <input
             id={`${id}-email`}
@@ -97,14 +97,14 @@ export function NewTicketForm({ mode }: { mode: TicketFormMode }) {
             placeholder="you@example.com"
             className="input h-11 text-start"
           />
-          <p className="mt-1.5 text-xs text-muted">سنرسل إليه رابط متابعة التذكرة وإشعاراً عند الرد. اشتريت من قبل؟ استخدم نفس البريد.</p>
+          <p className="mt-1.5 text-xs text-muted">{t.ticketForm.emailHint}</p>
         </div>
       ) : null}
 
       {mode.kind === "customer" ? (
         <div>
           <label htmlFor={`${id}-order`} className="label">
-            الطلب المعني <span className="font-normal">(اختياري)</span>
+            {t.ticketForm.order} <span className="font-normal">{t.ticketForm.optional}</span>
           </label>
           <select
             id={`${id}-order`}
@@ -114,7 +114,7 @@ export function NewTicketForm({ mode }: { mode: TicketFormMode }) {
             aria-invalid={error?.field === "orderId" ? true : undefined}
             className="input h-11"
           >
-            <option value="">بدون طلب محدد</option>
+            <option value="">{t.ticketForm.noOrder}</option>
             {mode.orders.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.label}
@@ -122,7 +122,7 @@ export function NewTicketForm({ mode }: { mode: TicketFormMode }) {
             ))}
           </select>
           <p className="mt-1.5 text-xs text-muted">
-            نرد على بريد حسابك{" "}
+            {t.ticketForm.replyToAccount}{" "}
             <bdi dir="ltr" className="font-semibold text-text">
               {mode.email}
             </bdi>
@@ -133,7 +133,7 @@ export function NewTicketForm({ mode }: { mode: TicketFormMode }) {
 
       <div>
         <label htmlFor={`${id}-subject`} className="label">
-          عنوان المشكلة
+          {t.ticketForm.subject}
         </label>
         <input
           id={`${id}-subject`}
@@ -145,14 +145,14 @@ export function NewTicketForm({ mode }: { mode: TicketFormMode }) {
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
           aria-invalid={error?.field === "subject" ? true : undefined}
-          placeholder="مثال: الكود لا يعمل"
+          placeholder={t.ticketForm.subjectPlaceholder}
           className="input h-11"
         />
       </div>
 
       <div>
         <label htmlFor={`${id}-body`} className="label">
-          رسالتك
+          {t.ticketForm.message}
         </label>
         <textarea
           id={`${id}-body`}
@@ -163,7 +163,7 @@ export function NewTicketForm({ mode }: { mode: TicketFormMode }) {
           value={body}
           onChange={(e) => setBody(e.target.value)}
           aria-invalid={error?.field === "body" ? true : undefined}
-          placeholder="اشرح المشكلة بالتفصيل: ماذا حدث، ومتى، وما الرسالة التي ظهرت لك. لا ترسل كلمات مرور."
+          placeholder={t.ticketForm.messagePlaceholder}
           className="input resize-y leading-7"
         />
         <p className="mt-1 text-end text-[11px] text-muted">
@@ -184,11 +184,11 @@ export function NewTicketForm({ mode }: { mode: TicketFormMode }) {
         {pending ? (
           <>
             <IconSpinner className="size-4" />
-            جارٍ الإرسال…
+            {t.ticketForm.sending}
           </>
         ) : (
           <>
-            إرسال التذكرة
+            {t.ticketForm.submit}
             <IconArrow className="size-4" />
           </>
         )}

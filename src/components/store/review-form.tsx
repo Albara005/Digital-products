@@ -2,11 +2,9 @@
 
 import { startTransition, useActionState, useId, useState } from "react";
 import { type ReviewFormState, submitReview } from "@/app/(store)/order/[id]/actions";
+import { useT } from "@/i18n/client";
 import { IconAlert, IconCheck, IconSpinner, IconStar } from "./icons";
 import { MAX_REVIEW_COMMENT, MAX_REVIEW_NAME } from "./site";
-
-const RATING_WORDS = ["سيئ", "مقبول", "جيد", "جيد جداً", "ممتاز"];
-const STAR_LABELS = ["نجمة واحدة", "نجمتان", "3 نجوم", "4 نجوم", "5 نجوم"];
 
 /** Compact verified-purchase review form for one delivered order line. */
 export function ReviewForm({
@@ -23,6 +21,9 @@ export function ReviewForm({
   defaultName: string;
 }) {
   const id = useId();
+  const t = useT();
+  const RATING_WORDS = t.reviewForm.ratingWords;
+  const STAR_LABELS = t.reviewForm.starLabels;
   const [state, dispatch, pending] = useActionState<ReviewFormState, FormData>(submitReview, null);
   // Controlled fields keep their values if the server rejects the submission. Once hydrated the
   // form dispatches from onSubmit, so React's automatic post-action form reset (which would
@@ -57,7 +58,7 @@ export function ReviewForm({
 
       <fieldset>
         <legend className="text-sm font-bold">
-          قيّم تجربتك مع <bdi>{productName}</bdi>
+          {t.reviewForm.rateYour} <bdi>{productName}</bdi>
         </legend>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
           <div className="flex" onMouseLeave={() => setHover(0)}>
@@ -86,7 +87,7 @@ export function ReviewForm({
             ))}
           </div>
           <span className="text-xs font-semibold text-muted" aria-live="polite">
-            {shown ? RATING_WORDS[shown - 1] : "اختر عدد النجوم"}
+            {shown ? RATING_WORDS[shown - 1] : t.reviewForm.chooseStars}
           </span>
         </div>
       </fieldset>
@@ -95,7 +96,7 @@ export function ReviewForm({
         <>
           <div>
             <label htmlFor={`${id}-comment`} className="label">
-              تعليقك <span className="font-normal">(اختياري)</span>
+              {t.reviewForm.comment} <span className="font-normal">{t.reviewForm.optional}</span>
             </label>
             <textarea
               id={`${id}-comment`}
@@ -105,7 +106,7 @@ export function ReviewForm({
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               aria-invalid={error?.field === "comment" ? true : undefined}
-              placeholder="ما الذي أعجبك؟ هل وصل المنتج كما هو موصوف؟"
+              placeholder={t.reviewForm.commentPlaceholder}
               className="input resize-y leading-7"
             />
             <p className="mt-1 text-end text-[11px] text-muted" aria-live="off">
@@ -118,7 +119,7 @@ export function ReviewForm({
           <div className="flex flex-wrap items-end gap-3">
             <div className="min-w-0 flex-1 basis-48">
               <label htmlFor={`${id}-name`} className="label">
-                الاسم الظاهر
+                {t.reviewForm.displayName}
               </label>
               <input
                 id={`${id}-name`}
@@ -138,15 +139,15 @@ export function ReviewForm({
               {pending ? (
                 <>
                   <IconSpinner className="size-4" />
-                  جارٍ الإرسال…
+                  {t.reviewForm.sending}
                 </>
               ) : (
-                "إرسال التقييم"
+                t.reviewForm.submit
               )}
             </button>
           </div>
           <p className="text-[11px] leading-5 text-muted">
-            يظهر تقييمك باسمك الظاهر مع شارة «مشتري موثّق» بعد مراجعته. لا ننشر بريدك الإلكتروني.
+            {t.reviewForm.note}
           </p>
         </>
       ) : null}

@@ -1,23 +1,14 @@
+"use client";
+
+import { useT } from "@/i18n/client";
 import { IconStar } from "./icons";
+import { formatRating } from "./site";
 
 const STARS = [1, 2, 3, 4, 5];
 
-/** "4.6" style average: one decimal, Latin digits. */
-export function formatRating(value: number) {
-  return (Math.round(value * 10) / 10).toFixed(1);
-}
-
-/** "12 تقييماً" with Arabic plural forms. */
-export function reviewCountLabel(n: number) {
-  if (n === 1) return "تقييم واحد";
-  if (n === 2) return "تقييمان";
-  if (n >= 3 && n <= 10) return `${n} تقييمات`;
-  return `${n} تقييماً`;
-}
-
 /**
  * Read-only star rating (supports fractions). Stars fill from the inline start, so
- * they read right-to-left in the Arabic UI like everything else.
+ * they follow the reading direction (right-to-left in Arabic, left-to-right in English).
  */
 export function Stars({
   value,
@@ -26,14 +17,15 @@ export function Stars({
 }: {
   value: number;
   className?: string;
-  /** Accessible text; defaults to "التقييم X من 5". */
+  /** Accessible text; defaults to "Rated X out of 5" in the current language. */
   label?: string;
 }) {
+  const t = useT();
   const clamped = Math.min(Math.max(value, 0), 5);
   return (
     <span
       role="img"
-      aria-label={label ?? `التقييم ${formatRating(clamped)} من 5`}
+      aria-label={label ?? t.stars.label(formatRating(clamped))}
       className="relative inline-flex shrink-0 align-middle"
     >
       <span className="flex text-border" aria-hidden="true">

@@ -5,7 +5,9 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requestSignInCode, signOutCustomer, verifySignInCode } from "@/lib/customer-auth";
 import { latinDigits, safeNextPath } from "@/components/store/site";
-import { consume, minutesLabel, requestIp } from "../_lib/rate-limit";
+import { localizePath } from "@/i18n/config";
+import { type Dictionary, dictionaryFor, getLocale } from "@/i18n/server";
+import { consume, requestIp } from "../_lib/rate-limit";
 
 export type SignInState = {
   step: "email" | "code";
@@ -22,13 +24,14 @@ const WINDOW_MS = 15 * 60_000;
 const MAX_SENDS_PER_IP = 10;
 const MAX_VERIFY_PER_IP = 30;
 
-const emailSchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .min(1, "أدخل بريدك الإلكتروني.")
-  .max(254, "البريد الإلكتروني طويل جداً.")
-  .pipe(z.email("صيغة البريد الإلكتروني غير صحيحة."));
+const emailSchema = (t: Dictionary) =>
+  z
+    .string()
+    .trim()
+    .toLowerCase()
+    .min(1, t.login.errors.emailRequired)
+    .max(254, t.login.errors.emailTooLong)
+    .pipe(z.email(t.login.errors.emailInvalid));
 
 /** The previous state arrives from the browser: never trust its shape. */
 function normalize(prev: unknown): SignInState {
@@ -53,48 +56,50 @@ function field(formData: FormData, key: string) {
  */
 export async function signInAction(previous: SignInState, formData: FormData): Promise<SignInState> {
   const prev = normalize(previous);
+  const locale = await getLocale();
+  const t = dictionaryFor(locale);
   const intent = field(formData, "intent");
   const attempt = prev.attempt + 1;
 
   if (intent === "send" || intent === "resend") {
-    const parsed = emailSchema.safeParse(intent === "resend" ? prev.email : field(formData, "email"));
+    const parsed = emailSchema(t).safeParse(intent === "resend" ? prev.email : field(formData, "email"));
     if (!parsed.success) {
-      return { ...prev, step: "email", error: parsed.error.issues[0]?.message ?? "البريد غير صالح.", attempt };
+      return { ...prev, step: "email", error: parsed.error.issues[0]?.message ?? t.login.errors.emailFallback, attempt };
     }
     const email = parsed.data;
     const wait = consume(`otp-send:${await requestIp()}`, MAX_SENDS_PER_IP, WINDOW_MS);
     if (wait) {
-      return { ...prev, email, error: `طلبات كثيرة من جهازك. حاول مجدداً بعد ${minutesLabel(wait)}.`, attempt };
+      return { ...prev, email, error: t.login.errors.tooManySends(t.common.minutes(wait)), attempt };
     }
-    const result = await requestSignInCode(email);
+    const result = await requestSignInCode(email, locale);
     if (!result.ok) return { ...prev, email, error: result.error, attempt };
     return { step: "code", email, error: null, sentAt: Date.now(), attempt };
   }
 
   if (intent === "verify") {
-    const email = emailSchema.safeParse(prev.email);
+    const email = emailSchema(t).safeParse(prev.email);
     if (prev.step !== "code" || !email.success) {
-      return { step: "email", email: prev.email, error: "أدخل بريدك الإلكتروني أولاً.", sentAt: null, attempt };
+      return { step: "email", email: prev.email, error: t.login.errors.emailFirst, sentAt: null, attempt };
     }
     const code = latinDigits(field(formData, "code"));
-    if (code.length !== 6) return { ...prev, error: "أدخل الرمز المكوّن من 6 أرقام.", attempt };
+    if (code.length !== 6) return { ...prev, error: t.login.errors.codeLength, attempt };
 
     const wait = consume(`otp-verify:${await requestIp()}`, MAX_VERIFY_PER_IP, WINDOW_MS);
-    if (wait) return { ...prev, error: `محاولات كثيرة. حاول مجدداً بعد ${minutesLabel(wait)}.`, attempt };
+    if (wait) return { ...prev, error: t.login.errors.tooManyTries(t.common.minutes(wait)), attempt };
 
-    const result = await verifySignInCode(email.data, code);
+    const result = await verifySignInCode(email.data, code, locale);
     if (!result.ok) return { ...prev, error: result.error, attempt };
 
     // New session cookie: re-render the layout (header account button) on the next page.
     revalidatePath("/", "layout");
-    redirect(safeNextPath(field(formData, "next")));
+    redirect(localizePath(safeNextPath(field(formData, "next")), locale));
   }
 
-  return { ...prev, error: "طلب غير صالح.", attempt };
+  return { ...prev, error: t.login.errors.badRequest, attempt };
 }
 
 export async function signOutAction(): Promise<void> {
   await signOutCustomer();
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect(localizePath("/", await getLocale()));
 }

@@ -4,8 +4,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { quoteCart } from "@/lib/pricing";
 import { type CartLineInfo, MAX_CART_LINES, MAX_LINE_QUANTITY } from "@/lib/cart";
+import { localized } from "@/i18n/config";
+import { dictionaryFor, getLocale } from "@/i18n/server";
 import { getSignedInCustomer } from "../_lib/session";
-import { hit, minutesLabel, requestIp, throttled } from "../_lib/rate-limit";
+import { hit, requestIp, throttled } from "../_lib/rate-limit";
 
 const variantIdsSchema = z
   .array(z.string().regex(/^[A-Za-z0-9_-]{1,64}$/))
@@ -22,14 +24,16 @@ export async function getCartLines(variantIds: unknown): Promise<CartLineInfo[]>
   const ids = [...new Set(parsed.data)];
   if (ids.length === 0) return [];
 
+  const locale = await getLocale();
   const variants = await prisma.productVariant.findMany({
     where: { id: { in: ids }, product: { active: true } },
     select: {
       id: true,
       label: true,
+      labelEn: true,
       priceCents: true,
       currency: true,
-      product: { select: { name: true, slug: true, type: true, imageUrl: true } },
+      product: { select: { name: true, nameEn: true, slug: true, type: true, imageUrl: true } },
       _count: { select: { inventoryItems: { where: { status: "AVAILABLE" } } } },
     },
   });
@@ -38,10 +42,10 @@ export async function getCartLines(variantIds: unknown): Promise<CartLineInfo[]>
     const manualDelivery = v.product.type === "SERVICE";
     return {
       variantId: v.id,
-      variantLabel: v.label,
+      variantLabel: localized(locale, v.label, v.labelEn),
       unitPriceCents: v.priceCents,
       currency: v.currency,
-      productName: v.product.name,
+      productName: localized(locale, v.product.name, v.product.nameEn),
       productSlug: v.product.slug,
       productType: v.product.type,
       imageUrl: v.product.imageUrl,
@@ -93,8 +97,10 @@ const COUPON_FAILS_WINDOW_MS = 15 * 60_000;
  * from the session, never from the browser; guests can't use the wallet.
  */
 export async function quoteCheckout(input: unknown): Promise<CheckoutQuote> {
+  const locale = await getLocale();
+  const t = dictionaryFor(locale);
   const parsed = quoteSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: "السلة غير صالحة." };
+  if (!parsed.success) return { ok: false, error: t.pricing.cartInvalid };
   const { items, useWallet } = parsed.data;
   const couponCode = parsed.data.couponCode?.toUpperCase() || undefined;
 
@@ -103,14 +109,12 @@ export async function quoteCheckout(input: unknown): Promise<CheckoutQuote> {
   if (ipKey) {
     const wait = throttled(ipKey, COUPON_FAILS_MAX);
     if (wait) {
-      const quote = await priceCart(items, undefined, useWallet, customer);
-      return quote.ok
-        ? { ...quote, couponError: `محاولات كثيرة لرموز الخصم. حاول مجدداً بعد ${minutesLabel(wait)}.` }
-        : quote;
+      const quote = await priceCart(items, undefined, useWallet, customer, locale);
+      return quote.ok ? { ...quote, couponError: t.pricing.couponThrottled(t.common.minutes(wait)) } : quote;
     }
   }
 
-  const quote = await priceCart(items, couponCode, useWallet, customer);
+  const quote = await priceCart(items, couponCode, useWallet, customer, locale);
   if (ipKey && quote.ok && quote.couponError) hit(ipKey, COUPON_FAILS_WINDOW_MS);
   return quote;
 }
@@ -120,8 +124,10 @@ async function priceCart(
   couponCode: string | undefined,
   useWallet: boolean | undefined,
   customer: Awaited<ReturnType<typeof getSignedInCustomer>>,
+  locale: Awaited<ReturnType<typeof getLocale>>,
 ): Promise<CheckoutQuote> {
   const result = await quoteCart({
+    locale,
     items,
     couponCode,
     useWallet: !!customer && !!useWallet,

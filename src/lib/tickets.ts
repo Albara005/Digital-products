@@ -3,7 +3,10 @@ import { createHash, timingSafeEqual } from "crypto";
 import type { TicketStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { randomToken } from "@/lib/crypto";
-import { siteUrl } from "@/lib/email";
+import { escapeHtml, siteUrl } from "@/lib/email";
+import { type Locale, localizePath } from "@/i18n/config";
+import { emailCopy } from "@/i18n/emails";
+import { getEmailLocale } from "@/i18n/server";
 import { notifyAdmin } from "@/lib/notify";
 import { MAX_TICKET_BODY, MAX_TICKET_SUBJECT } from "@/components/store/site";
 
@@ -65,8 +68,19 @@ export function ticketPath(ticket: { id: string; accessToken: string }): string 
   return `/support/t/${ticket.id}?token=${encodeURIComponent(ticket.accessToken)}`;
 }
 
-export function ticketUrl(ticket: { id: string; accessToken: string }): string {
-  return `${siteUrl()}${ticketPath(ticket)}`;
+export function ticketUrl(ticket: { id: string; accessToken: string }, locale: Locale = "ar"): string {
+  return `${siteUrl()}${localizePath(ticketPath(ticket), locale)}`;
+}
+
+const ARABIC_SCRIPT = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/;
+
+/**
+ * Language for an admin reply email. Tickets don't store the customer's language, so it is
+ * inferred from what they wrote: any Arabic in the subject or their messages -> Arabic,
+ * otherwise English.
+ */
+function ticketLocale(texts: string[]): Locale {
+  return texts.some((text) => ARABIC_SCRIPT.test(text)) ? "ar" : "en";
 }
 
 const adminTicketUrl = (id: string) => `${siteUrl()}/admin/tickets/${id}`;
@@ -111,7 +125,13 @@ export async function createTicket(input: NewTicket): Promise<{ id: string; acce
     "ticket.new",
     `🎫 تذكرة دعم جديدة #${shortTicketId(ticket.id)}: ${truncateLine(input.subject, 80)}\n${adminTicketUrl(ticket.id)}`,
   );
-  await sendTicketEmail({ kind: "created", ticket: { ...ticket, email: input.email, subject: input.subject }, idempotencyKey: `ticket-created-${ticket.id}` });
+  await sendTicketEmail({
+    kind: "created",
+    ticket: { ...ticket, email: input.email, subject: input.subject },
+    idempotencyKey: `ticket-created-${ticket.id}`,
+    // Opened from the storefront: the language the customer is browsing in
+    locale: await getEmailLocale(),
+  });
   return ticket;
 }
 
@@ -146,7 +166,13 @@ export async function addAdminReply(ticketId: string, adminId: string, body: str
   const result = await prisma.$transaction(async (tx) => {
     const ticket = await tx.ticket.findUnique({
       where: { id: ticketId },
-      select: { id: true, accessToken: true, email: true, subject: true },
+      select: {
+        id: true,
+        accessToken: true,
+        email: true,
+        subject: true,
+        messages: { where: { author: "CUSTOMER" }, orderBy: { createdAt: "asc" }, take: 5, select: { body: true } },
+      },
     });
     if (!ticket) return null;
     const now = new Date();
@@ -158,7 +184,13 @@ export async function addAdminReply(ticketId: string, adminId: string, body: str
     return { messageId: message.id, ticket };
   });
   if (!result) return { ok: false, error: "التذكرة غير موجودة." };
-  await sendTicketEmail({ kind: "reply", ticket: result.ticket, idempotencyKey: `ticket-reply-${result.messageId}` });
+  const { messages, ...ticket } = result.ticket;
+  await sendTicketEmail({
+    kind: "reply",
+    ticket,
+    idempotencyKey: `ticket-reply-${result.messageId}`,
+    locale: ticketLocale([ticket.subject, ...messages.map((m) => m.body)]),
+  });
   return { ok: true, messageId: result.messageId };
 }
 
@@ -170,15 +202,6 @@ export async function setTicketStatus(ticketId: string, status: TicketStatus): P
 
 // --- Email -----------------------------------------------------------------
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 /**
  * "created": confirmation with the private link. "reply": the support team answered.
  * Only the link is sent (never the message text). Never throws: failures are logged.
@@ -187,13 +210,16 @@ async function sendTicketEmail({
   kind,
   ticket,
   idempotencyKey,
+  locale,
 }: {
   kind: "created" | "reply";
   ticket: { id: string; accessToken: string; email: string; subject: string };
   idempotencyKey: string;
+  locale: Locale;
 }): Promise<void> {
   try {
-    const link = ticketUrl(ticket);
+    const c = emailCopy(locale);
+    const link = ticketUrl(ticket, locale);
     const apiKey = process.env.RESEND_API_KEY?.trim();
     const shortId = shortTicketId(ticket.id);
     if (!apiKey) {
@@ -201,46 +227,39 @@ async function sendTicketEmail({
       return;
     }
 
-    const subject =
-      kind === "reply" ? `رد جديد على تذكرتك #${shortId} - Nitro Store` : `استلمنا تذكرتك #${shortId} - Nitro Store`;
-    const lead =
-      kind === "reply"
-        ? `ردّ فريق الدعم على تذكرتك رقم <strong>#${shortId}</strong>.`
-        : `استلمنا تذكرتك رقم <strong>#${shortId}</strong> وسنرد عليك في أقرب وقت.`;
-    const leadText =
-      kind === "reply" ? `ردّ فريق الدعم على تذكرتك رقم #${shortId}.` : `استلمنا تذكرتك رقم #${shortId} وسنرد عليك في أقرب وقت.`;
-    const cta = kind === "reply" ? "عرض الرد" : "متابعة التذكرة";
+    const subject = c.ticket.subject(kind, shortId);
+    const lead = c.ticket.leadHtml(kind, shortId);
+    const leadText = c.ticket.leadText(kind, shortId);
+    const cta = c.ticket.cta(kind);
 
     const html = `<!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="${locale}" dir="${c.dir}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(subject)}</title></head>
-<body style="margin:0;padding:0;background:#f4f4f7;font-family:Tahoma,Arial,sans-serif;direction:rtl;text-align:right;color:#1a1a2e;">
+<body style="margin:0;padding:0;background:#f4f4f7;font-family:Tahoma,Arial,sans-serif;direction:${c.dir};text-align:${c.align};color:#1a1a2e;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f7;padding:24px 0;">
     <tr><td align="center">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;padding:32px;" dir="rtl">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;padding:32px;" dir="${c.dir}">
         <tr><td style="font-size:22px;font-weight:bold;padding-bottom:16px;">Nitro Store</td></tr>
         <tr><td style="font-size:16px;line-height:1.8;">
-          <p style="margin:0 0 12px;">مرحباً،</p>
+          <p style="margin:0 0 12px;">${c.ticket.hello}</p>
           <p style="margin:0 0 12px;">${lead}</p>
-          <p style="margin:0 0 20px;color:#555;">الموضوع: ${escapeHtml(ticket.subject)}</p>
-          <p style="margin:0 0 20px;">لحماية بياناتك لا نرسل محتوى الرسائل عبر البريد. اضغط الزر أدناه لقراءة المحادثة والرد عليها.</p>
+          <p style="margin:0 0 20px;color:#555;">${c.ticket.subjectLabel} ${escapeHtml(ticket.subject)}</p>
+          <p style="margin:0 0 20px;">${c.ticket.privacy}</p>
         </td></tr>
         <tr><td align="center" style="padding-bottom:24px;">
           <a href="${escapeHtml(link)}" style="display:inline-block;background:#0a0a0a;color:#d4ff3d;text-decoration:none;padding:14px 28px;border-radius:8px;font-size:16px;font-weight:bold;">${cta}</a>
         </td></tr>
         <tr><td style="font-size:12px;color:#666;line-height:1.7;">
-          <p style="margin:0 0 8px;">إذا لم يعمل الزر، انسخ هذا الرابط في المتصفح:</p>
+          <p style="margin:0 0 8px;">${c.fallback}</p>
           <p style="margin:0 0 16px;direction:ltr;text-align:left;word-break:break-all;"><a href="${escapeHtml(link)}" style="color:#0a0a0a;">${escapeHtml(link)}</a></p>
-          <p style="margin:0;">هذا الرابط خاص بك، لا تشاركه مع أحد.</p>
+          <p style="margin:0;">${c.private}</p>
         </td></tr>
       </table>
     </td></tr>
   </table>
 </body>
 </html>`;
-    const text = ["مرحباً،", leadText, `الموضوع: ${ticket.subject}`, "اقرأ المحادثة ورد عليها من هنا:", link, "هذا الرابط خاص بك، لا تشاركه مع أحد."].join(
-      "\n",
-    );
+    const text = [c.ticket.hello, leadText, `${c.ticket.subjectLabel} ${ticket.subject}`, c.ticket.textRead, link, c.private].join("\n");
 
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",

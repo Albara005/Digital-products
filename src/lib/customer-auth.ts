@@ -4,6 +4,8 @@ import { createHmac, randomInt, timingSafeEqual } from "crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "@/lib/prisma";
 import { sendSignInCodeEmail } from "@/lib/email";
+import { DEFAULT_LOCALE, type Locale } from "@/i18n/config";
+import { dictionaryFor } from "@/i18n/server";
 
 const COOKIE = "nitro_customer";
 const SESSION_DAYS = 30;
@@ -30,31 +32,32 @@ function hashCode(email: string, code: string) {
   return createHmac("sha256", secret()).update(`${email}:${code}`).digest("hex");
 }
 
-/** Emails a 6-digit sign-in code. Limited to 3 codes per email per 10 minutes. */
-export async function requestSignInCode(rawEmail: string): Promise<OtpResult> {
+/** Emails a 6-digit sign-in code (in `locale`). Limited to 3 codes per email per 10 minutes. */
+export async function requestSignInCode(rawEmail: string, locale: Locale = DEFAULT_LOCALE): Promise<OtpResult> {
+  const t = dictionaryFor(locale);
   const email = normalizeEmail(rawEmail);
   const since = new Date(Date.now() - CODE_WINDOW_MINUTES * 60_000);
   const recent = await prisma.customerOtp.count({ where: { email, createdAt: { gte: since } } });
   if (recent >= MAX_CODES_PER_WINDOW) {
-    return { ok: false, error: "طلبت رموزاً كثيرة. انتظر بضع دقائق ثم حاول مجدداً." };
+    return { ok: false, error: t.login.errors.tooManyCodes };
   }
 
   const code = randomInt(0, 1_000_000).toString().padStart(6, "0");
   await prisma.customerOtp.create({
     data: { email, codeHash: hashCode(email, code), expiresAt: new Date(Date.now() + CODE_TTL_MINUTES * 60_000) },
   });
-  const sent = await sendSignInCodeEmail(email, code);
-  return sent ? { ok: true } : { ok: false, error: "تعذّر إرسال الرمز. حاول مرة أخرى بعد قليل." };
+  const sent = await sendSignInCodeEmail(email, code, locale);
+  return sent ? { ok: true } : { ok: false, error: t.login.errors.sendFailed };
 }
 
 /** Verifies the latest unexpired code; on success upserts the customer and starts a 30-day session. */
-export async function verifySignInCode(rawEmail: string, code: string): Promise<OtpResult> {
+export async function verifySignInCode(rawEmail: string, code: string, locale: Locale = DEFAULT_LOCALE): Promise<OtpResult> {
   const email = normalizeEmail(rawEmail);
   const otp = await prisma.customerOtp.findFirst({
     where: { email, consumedAt: null, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: "desc" },
   });
-  const invalid = { ok: false as const, error: "الرمز غير صحيح أو منتهي الصلاحية." };
+  const invalid = { ok: false as const, error: dictionaryFor(locale).login.errors.invalidCode };
   if (!otp || otp.attempts >= MAX_ATTEMPTS) return invalid;
 
   // Count the attempt before comparing so parallel guesses can't bypass the limit

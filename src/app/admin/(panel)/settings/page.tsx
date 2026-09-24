@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { getSettings } from "@/lib/settings";
-import { ReferralSettingsForm, StoreSettingsForm } from "@/components/admin/settings/SettingsForms";
+import { CurrencySettingsForm, ReferralSettingsForm, StoreSettingsForm } from "@/components/admin/settings/SettingsForms";
 import { CheckIcon } from "@/components/admin/icons";
 import { PageHeader } from "@/components/admin/ui";
 import { requireAdminAccess } from "../../_lib/guard";
-import { saveReferralSettings, saveStoreSettings } from "./actions";
+import { saveCurrencySettings, saveReferralSettings, saveStoreSettings } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "الإعدادات" };
@@ -55,7 +55,7 @@ function Section({ id, title, description, children }: { id: string; title: stri
 export default async function SettingsPage() {
   await requireAdminAccess("SUPER_ADMIN");
   const settings = await getSettings();
-  const { referral, store } = settings;
+  const { referral, store, currencies } = settings;
   const list = integrations();
   const gatewayOn = list.slice(0, 2).some((i) => i.on);
 
@@ -89,6 +89,14 @@ export default async function SettingsPage() {
 
           <Section id="store-title" title="المتجر" description="تنبيهات تشغيلية عامة.">
             <StoreSettingsForm action={saveStoreSettings} lowStockThreshold={store.lowStockThreshold} />
+          </Section>
+
+          <Section
+            id="currencies-title"
+            title="عملات العرض"
+            description="يختار العميل عملته من رأس المتجر ليرى سعراً تقريبياً محوّلاً من الدولار. أسعار الصرف هنا للعرض فقط."
+          >
+            <CurrencySettingsForm action={saveCurrencySettings} enabled={currencies.enabled} rates={currencies.rates} />
           </Section>
         </div>
 

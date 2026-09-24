@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { IconBox } from "@/components/store/icons";
+import Link from "@/components/store/link";
 import { ProductGrid } from "@/components/store/product-card";
 import { categoryHref, decodeSlug, firstParam, truncate } from "@/components/store/site";
 import { EmptyState, PageHeader } from "@/components/store/ui";
+import { alternates } from "@/i18n/metadata";
+import { getDictionary } from "@/i18n/server";
 import { type CategorySort, getCategoryBySlug, getCategoryProducts } from "../../_lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -14,34 +16,28 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const SORTS: { value: CategorySort; label: string }[] = [
-  { value: "newest", label: "الأحدث" },
-  { value: "price-asc", label: "السعر: من الأقل" },
-  { value: "price-desc", label: "السعر: من الأعلى" },
-];
+const SORTS: CategorySort[] = ["newest", "price-asc", "price-desc"];
 
 function parseSort(value: string | undefined): CategorySort {
-  return SORTS.some((s) => s.value === value) ? (value as CategorySort) : "newest";
+  return SORTS.some((s) => s === value) ? (value as CategorySort) : "newest";
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const category = await getCategoryBySlug(decodeSlug(slug));
-  if (!category) return { title: "القسم غير موجود" };
-  const description = category.description
-    ? truncate(category.description, 160)
-    : `تسوّق ${category.name} من Nitro Store — دفع آمن وتسليم فوري على مدار الساعة.`;
+  const [category, t] = await Promise.all([getCategoryBySlug(decodeSlug(slug)), getDictionary()]);
+  if (!category) return { title: t.category.notFound };
+  const description = category.description ? truncate(category.description, 160) : t.category.metaDescription(category.name);
   return {
     title: category.name,
     description,
-    alternates: { canonical: categoryHref(category.slug) },
+    alternates: await alternates(categoryHref(category.slug)),
     openGraph: { title: category.name, description },
   };
 }
 
 export default async function CategoryPage({ params, searchParams }: Props) {
   const [{ slug }, query] = await Promise.all([params, searchParams]);
-  const category = await getCategoryBySlug(decodeSlug(slug));
+  const [category, t] = await Promise.all([getCategoryBySlug(decodeSlug(slug)), getDictionary()]);
   if (!category) notFound();
 
   const sort = parseSort(firstParam(query.sort));
@@ -51,9 +47,9 @@ export default async function CategoryPage({ params, searchParams }: Props) {
   return (
     <>
       <PageHeader eyebrow="Category" title={category.name} description={category.description}>
-        <nav aria-label="مسار التنقل" className="mt-4 text-xs text-muted">
+        <nav aria-label={t.common.breadcrumb} className="mt-4 text-xs text-muted">
           <Link href="/" className="hover:text-volt">
-            الرئيسية
+            {t.common.home}
           </Link>
           <span className="mx-2" aria-hidden="true">
             /
@@ -68,16 +64,16 @@ export default async function CategoryPage({ params, searchParams }: Props) {
             <span dir="ltr" className="font-display font-bold text-text">
               {products.length}
             </span>{" "}
-            {products.length === 1 ? "منتج" : "منتجات"}
+            {t.common.products(products.length)}
           </p>
           {products.length > 1 ? (
-            <div role="group" aria-label="ترتيب المنتجات" className="flex gap-1 rounded-full border border-border bg-surface p-1">
+            <div role="group" aria-label={t.category.sortLabel} className="flex gap-1 rounded-full border border-border bg-surface p-1">
               {SORTS.map((s) => {
-                const active = s.value === sort;
+                const active = s === sort;
                 return (
                   <Link
-                    key={s.value}
-                    href={s.value === "newest" ? base : `${base}?sort=${s.value}`}
+                    key={s}
+                    href={s === "newest" ? base : `${base}?sort=${s}`}
                     aria-current={active ? "true" : undefined}
                     scroll={false}
                     replace
@@ -85,7 +81,7 @@ export default async function CategoryPage({ params, searchParams }: Props) {
                       active ? "bg-volt text-bg" : "text-muted hover:text-text"
                     }`}
                   >
-                    {s.label}
+                    {t.category.sorts[s]}
                   </Link>
                 );
               })}
@@ -99,14 +95,14 @@ export default async function CategoryPage({ params, searchParams }: Props) {
           ) : (
             <EmptyState
               icon={<IconBox className="size-7" />}
-              title="لا توجد منتجات في هذا القسم حالياً"
-              description="نضيف منتجات جديدة باستمرار. تصفّح بقية الأقسام أو ابحث عن منتج محدد."
+              title={t.category.emptyTitle}
+              description={t.category.emptyText}
             >
               <Link href="/" className="btn-primary">
-                العودة للرئيسية
+                {t.common.backHome}
               </Link>
               <Link href="/search" className="btn-ghost">
-                البحث
+                {t.common.search}
               </Link>
             </EmptyState>
           )}

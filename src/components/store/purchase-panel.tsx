@@ -1,13 +1,15 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import type { ProductType } from "@prisma/client";
+import { useLocalePath, useT } from "@/i18n/client";
 import { MAX_LINE_QUANTITY } from "@/lib/cart";
 import { formatPrice } from "@/lib/format";
 import { useCart } from "./cart-provider";
+import { Approx } from "./currency";
 import { IconBag, IconBolt, IconCheck, IconMinus, IconPlus } from "./icons";
+import Link from "./link";
 import { StockIndicator, stockState } from "./ui";
 
 export type PurchaseVariant = {
@@ -26,6 +28,8 @@ function maxFor(type: ProductType, v: PurchaseVariant) {
 export function PurchasePanel({ productType, variants }: { productType: ProductType; variants: PurchaseVariant[] }) {
   const router = useRouter();
   const cart = useCart();
+  const t = useT();
+  const localePath = useLocalePath();
   const groupId = useId();
 
   const firstBuyable = variants.find((v) => maxFor(productType, v) > 0) ?? variants[0];
@@ -39,7 +43,7 @@ export function PurchasePanel({ productType, variants }: { productType: ProductT
   const selected = variants.find((v) => v.id === selectedId) ?? firstBuyable;
   if (!selected) {
     return (
-      <div className="card p-5 text-sm text-muted">هذا المنتج غير متاح للشراء حالياً.</div>
+      <div className="card p-5 text-sm text-muted">{t.purchase.unavailable}</div>
     );
   }
 
@@ -61,11 +65,11 @@ export function PurchasePanel({ productType, variants }: { productType: ProductT
     const before = cart.quantityOf(selected.id);
     const after = cart.add(selected.id, qty, max);
     if (after === 0) {
-      flash("warn", "السلة ممتلئة، أكمل طلبك الحالي أولاً.");
+      flash("warn", t.purchase.cartFull);
       return false;
     }
-    if (after - before < qty) flash("warn", `تم تعديل الكمية إلى الحد المتاح (${after}).`);
-    else flash("ok", "أُضيف إلى السلة.");
+    if (after - before < qty) flash("warn", t.purchase.adjusted(after));
+    else flash("ok", t.purchase.added);
     setQuantity(1);
     return true;
   }
@@ -73,13 +77,13 @@ export function PurchasePanel({ productType, variants }: { productType: ProductT
   function buyNow() {
     // Already at the cap for this variant: nothing to add, go straight to checkout.
     if (canAdd && !addSelected()) return;
-    router.push("/cart");
+    router.push(localePath("/cart"));
   }
 
   return (
     <div className="space-y-6">
       <fieldset>
-        <legend className="mb-3 text-sm font-bold">اختر الفئة</legend>
+        <legend className="mb-3 text-sm font-bold">{t.purchase.chooseVariant}</legend>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {variants.map((v) => {
             const vMax = maxFor(productType, v);
@@ -111,8 +115,11 @@ export function PurchasePanel({ productType, variants }: { productType: ProductT
                     <StockIndicator state={state} count={v.available} />
                   </span>
                 </span>
-                <span dir="ltr" className="font-display text-base font-bold tabular-nums">
-                  {formatPrice(v.priceCents, v.currency)}
+                <span className="flex shrink-0 flex-col items-end text-end">
+                  <span dir="ltr" className="font-display text-base font-bold tabular-nums">
+                    {formatPrice(v.priceCents, v.currency)}
+                  </span>
+                  <Approx cents={v.priceCents} currency={v.currency} />
                 </span>
               </label>
             );
@@ -122,26 +129,27 @@ export function PurchasePanel({ productType, variants }: { productType: ProductT
 
       <div className="flex flex-wrap items-end justify-between gap-4 border-y border-border py-5">
         <div>
-          <p className="text-xs text-muted">الإجمالي</p>
+          <p className="text-xs text-muted">{t.purchase.total}</p>
           <p dir="ltr" className="font-display text-3xl font-bold text-volt tabular-nums sm:text-4xl">
             {formatPrice(selected.priceCents * qty, selected.currency)}
           </p>
+          <Approx cents={selected.priceCents * qty} currency={selected.currency} className="text-sm" />
         </div>
 
         <div>
           <p id={`${groupId}-qty`} className="mb-2 text-xs text-muted">
-            الكمية
+            {t.purchase.quantity}
           </p>
           <div
             role="group"
             aria-labelledby={`${groupId}-qty`}
-            className="flex h-11 items-center rounded-lg border border-border bg-surface"
+            className="flex h-11 items-center rounded-lg border border-border bg-surface ltr:flex-row-reverse"
           >
             <button
               type="button"
               onClick={() => setQuantity(qty + 1)}
               disabled={!canAdd || qty >= roomLeft}
-              aria-label="زيادة الكمية"
+              aria-label={t.purchase.increase}
               className="grid h-full w-11 place-items-center text-text transition hover:text-volt disabled:opacity-30"
             >
               <IconPlus className="size-4" />
@@ -153,7 +161,7 @@ export function PurchasePanel({ productType, variants }: { productType: ProductT
               type="button"
               onClick={() => setQuantity(qty - 1)}
               disabled={!canAdd || qty <= 1}
-              aria-label="إنقاص الكمية"
+              aria-label={t.purchase.decrease}
               className="grid h-full w-11 place-items-center text-text transition hover:text-volt disabled:opacity-30"
             >
               <IconMinus className="size-4" />
@@ -165,11 +173,11 @@ export function PurchasePanel({ productType, variants }: { productType: ProductT
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <button type="button" onClick={buyNow} disabled={soldOut} className="btn-primary h-12 text-base">
           <IconBolt className="size-4" />
-          {soldOut ? "نفدت الكمية" : "اشترِ الآن"}
+          {soldOut ? t.purchase.soldOut : t.purchase.buyNow}
         </button>
         <button type="button" onClick={addSelected} disabled={!canAdd} className="btn-ghost h-12 text-base">
           <IconBag className="size-4" />
-          أضف إلى السلة
+          {t.purchase.addToCart}
         </button>
       </div>
 
@@ -179,14 +187,14 @@ export function PurchasePanel({ productType, variants }: { productType: ProductT
             {notice.kind === "ok" ? <IconCheck className="size-4" /> : null}
             {notice.text}
             <Link href="/cart" className="font-semibold text-text underline decoration-volt underline-offset-4">
-              عرض السلة
+              {t.purchase.viewCart}
             </Link>
           </p>
         ) : !soldOut && roomLeft === 0 ? (
           <p className="text-muted">
-            لديك الحد الأقصى المتاح من هذه الفئة في السلة.{" "}
+            {t.purchase.atMax}{" "}
             <Link href="/cart" className="font-semibold text-text underline decoration-volt underline-offset-4">
-              إتمام الطلب
+              {t.purchase.checkout}
             </Link>
           </p>
         ) : null}

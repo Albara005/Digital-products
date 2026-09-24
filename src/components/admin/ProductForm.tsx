@@ -12,6 +12,7 @@ import { useFormAction } from "./useFormAction";
 export type ProductFormVariant = {
   id: string;
   label: string;
+  labelEn: string;
   price: string; // dollars, e.g. "9.99"
   cost: string; // supplier cost in dollars, "" when unknown
   sortOrder: number;
@@ -23,10 +24,12 @@ export type ProductFormData = {
   id: string;
   version: string; // updatedAt — remounts the fields with fresh data after each save
   name: string;
+  nameEn: string;
   slug: string;
   categoryId: string;
   type: ProductType;
   description: string;
+  descriptionEn: string;
   imageUrl: string;
   active: boolean;
   featured: boolean;
@@ -34,7 +37,7 @@ export type ProductFormData = {
   variants: ProductFormVariant[];
 };
 
-type Row = { key: string; id?: string; label: string; price: string; cost: string; sortOrder: string; orders: number; stock: number };
+type Row = { key: string; id?: string; label: string; labelEn: string; price: string; cost: string; sortOrder: string; orders: number; stock: number };
 
 function toCents(v: string): number | null {
   if (!/^\d{1,6}(\.\d{1,2})?$/.test(v.trim())) return null;
@@ -108,13 +111,14 @@ function ProductFields({
           key: v.id,
           id: v.id,
           label: v.label,
+          labelEn: v.labelEn,
           price: v.price,
           cost: v.cost,
           sortOrder: String(v.sortOrder),
           orders: v.orders,
           stock: v.stock,
         }))
-      : [{ key: "new-0", label: "", price: "", cost: "", sortOrder: "0", orders: 0, stock: 0 }],
+      : [{ key: "new-0", label: "", labelEn: "", price: "", cost: "", sortOrder: "0", orders: 0, stock: 0 }],
   );
   const nextKey = useRef(1);
 
@@ -123,11 +127,11 @@ function ProductFields({
 
   const addRow = () => {
     const key = `new-${nextKey.current++}`;
-    setRows((rs) => [...rs, { key, label: "", price: "", cost: "", sortOrder: String(rs.length), orders: 0, stock: 0 }]);
+    setRows((rs) => [...rs, { key, label: "", labelEn: "", price: "", cost: "", sortOrder: String(rs.length), orders: 0, stock: 0 }]);
   };
 
   const serialized = JSON.stringify(
-    rows.map((r) => ({ id: r.id, label: r.label, price: r.price, cost: r.cost, sortOrder: r.sortOrder || "0" })),
+    rows.map((r) => ({ id: r.id, label: r.label, labelEn: r.labelEn, price: r.price, cost: r.cost, sortOrder: r.sortOrder || "0" })),
   );
   const err = (k: string) => state?.errors?.[k];
 
@@ -194,6 +198,48 @@ function ProductFields({
           </div>
         </section>
 
+        <section className="card flex flex-col gap-4 p-5" aria-labelledby="p-en-title">
+          <div>
+            <h2 id="p-en-title" className="font-semibold">
+              النسخة الإنجليزية <span className="text-xs font-normal text-muted">(اختياري)</span>
+            </h2>
+            <p className="text-xs text-muted">تظهر في المتجر باللغة الإنجليزية. الحقول الفارغة تعرض النص العربي بدلاً منها.</p>
+          </div>
+          <div>
+            <label htmlFor="p-name-en" className="label">
+              English name
+            </label>
+            <input
+              id="p-name-en"
+              name="nameEn"
+              dir="ltr"
+              lang="en"
+              className="input text-start"
+              maxLength={120}
+              defaultValue={product?.nameEn ?? ""}
+              placeholder="PlayStation Store Gift Card"
+            />
+            <FieldError state={state} name="nameEn" />
+          </div>
+          <div>
+            <label htmlFor="p-desc-en" className="label">
+              English description
+            </label>
+            <textarea
+              id="p-desc-en"
+              name="descriptionEn"
+              dir="ltr"
+              lang="en"
+              rows={5}
+              maxLength={5000}
+              className="input resize-y text-start leading-relaxed"
+              defaultValue={product?.descriptionEn ?? ""}
+              placeholder="What the customer gets, how to redeem it, region…"
+            />
+            <FieldError state={state} name="descriptionEn" />
+          </div>
+        </section>
+
         <section className="card p-5" aria-labelledby="variants-title">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
@@ -223,7 +269,7 @@ function ProductFields({
             {rows.map((r, i) => {
               const margin = marginPct(r.price, r.cost);
               const rowError =
-                err(`variants.${i}.label`) ?? err(`variants.${i}.price`) ?? err(`variants.${i}.cost`) ?? err(`variants.${i}.sortOrder`);
+                err(`variants.${i}.label`) ?? err(`variants.${i}.labelEn`) ?? err(`variants.${i}.price`) ?? err(`variants.${i}.cost`) ?? err(`variants.${i}.sortOrder`);
               const locked = r.orders > 0 || r.stock > 0;
               const lockReason =
                 r.orders > 0
@@ -287,6 +333,16 @@ function ProductFields({
                       onChange={(e) => update(r.key, { sortOrder: e.target.value })}
                     />
                   </div>
+                  <input
+                    aria-label={`الاسم الإنجليزي للخيار ${i + 1} (اختياري)`}
+                    className="input mt-2 h-9 text-start text-xs"
+                    dir="ltr"
+                    lang="en"
+                    value={r.labelEn}
+                    maxLength={80}
+                    placeholder="English label (optional)"
+                    onChange={(e) => update(r.key, { labelEn: e.target.value })}
+                  />
                   {(r.orders > 0 || r.stock > 0 || margin !== null) && (
                     <p className="mt-1 flex flex-wrap gap-x-3 px-1 text-[11px] text-muted">
                       {margin !== null && (
