@@ -159,7 +159,15 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
           sub={`هامش ${pct(r.marginPct)} من صافي الإيراد`}
           tone={r.grossProfitCents < 0 ? "bad" : undefined}
         />
-        <Kpi label="عدد الطلبات" value={String(r.orders)} sub={`متوسط الطلب ${formatPrice(r.avgOrderCents)}`} />
+        <Kpi
+          label="عدد الطلبات"
+          value={String(r.orders)}
+          sub={
+            <>
+              متوسط الطلب <bdi dir="ltr">{formatPrice(r.avgOrderCents)}</bdi>
+            </>
+          }
+        />
         <Kpi
           label="الخصومات (كوبونات)"
           value={formatPrice(r.discountCents)}
@@ -168,7 +176,11 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
         <Kpi
           label="المدفوع من المحفظة"
           value={pct(r.walletShare === null ? null : r.walletShare * 100)}
-          sub={`${formatPrice(r.walletCents)} من صافي الإيراد · عملاء جدد: ${r.newCustomers}`}
+          sub={
+            <>
+              <bdi dir="ltr">{formatPrice(r.walletCents)}</bdi> من صافي الإيراد · عملاء جدد: {r.newCustomers}
+            </>
+          }
         />
       </section>
 

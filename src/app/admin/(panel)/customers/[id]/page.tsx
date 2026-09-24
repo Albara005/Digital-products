@@ -261,7 +261,7 @@ export default async function CustomerDetailPage({ params, searchParams }: PageP
               تعديل رصيد المحفظة
             </h2>
             <p className="mb-4 mt-1 text-sm text-muted">
-              الرصيد الحالي: <span className="font-display font-semibold text-text">{formatPrice(customer.walletBalanceCents)}</span>
+              الرصيد الحالي: <bdi dir="ltr" className="font-display font-semibold text-text">{formatPrice(customer.walletBalanceCents)}</bdi>
             </p>
             {isSuper ? (
               <WalletAdjustForm

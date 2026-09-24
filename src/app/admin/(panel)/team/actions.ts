@@ -8,6 +8,7 @@ import { audit } from "@/lib/audit";
 import { hashPassword } from "@/lib/auth";
 import type { FormState } from "../../_lib/form-state";
 import { requireAdminAccess, type AdminAccess } from "../../_lib/guard";
+import { deleteRecoveryCodes } from "../../_lib/two-factor";
 import {
   ActionError,
   fail,
@@ -131,7 +132,10 @@ export async function disableAdminTwoFactor(_prev: FormState, formData: FormData
   const row = await prisma.admin.findUnique({ where: { id: target.id }, select: { email: true, totpEnabledAt: true } });
   if (!row) return fail("العضو غير موجود.");
   if (!row.totpEnabledAt) return fail("التحقق بخطوتين غير مفعّل لهذا العضو.");
-  await prisma.admin.update({ where: { id: target.id }, data: { totpSecret: null, totpEnabledAt: null } });
+  await prisma.$transaction(async (tx) => {
+    await tx.admin.update({ where: { id: target.id }, data: { totpSecret: null, totpEnabledAt: null } });
+    await deleteRecoveryCodes(target.id, tx);
+  });
   await audit(actor(session), "team.2fa_disable", { type: "admin", id: target.id }, { email: row.email });
   revalidatePath("/admin/team");
   return ok("تم تعطيل التحقق بخطوتين. يمكنه الدخول بكلمة المرور ثم إعادة التفعيل من صفحة حسابه.");

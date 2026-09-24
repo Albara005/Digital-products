@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getSetting } from "@/lib/settings";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { OrderStatus } from "@prisma/client";
@@ -14,12 +15,12 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "الرئيسية" };
 
 const REVENUE_STATUSES: OrderStatus[] = ["PAID", "FULFILLED"];
-const LOW_STOCK = 5;
 
 const dayNumber = new Intl.DateTimeFormat("ar", { day: "numeric" });
 const dayFull = new Intl.DateTimeFormat("ar", { weekday: "long", day: "numeric", month: "long" });
 
 export default async function AdminDashboardPage() {
+  const { lowStockThreshold: LOW_STOCK } = await getSetting("store");
   await requireAdminAccess();
 
   const now = new Date();

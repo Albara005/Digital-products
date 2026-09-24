@@ -105,7 +105,7 @@ function Fields({
           autoComplete="off"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          placeholder="10 أو -5.50"
+          placeholder="+10 / -5.50"
           className="input text-left font-display"
           aria-invalid={Boolean(state?.errors?.amount)}
           aria-describedby="w-amount-hint"

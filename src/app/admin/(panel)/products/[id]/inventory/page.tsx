@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getSetting } from "@/lib/settings";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { InventoryStatus } from "@prisma/client";
@@ -17,9 +18,9 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "المخزون" };
 
 const PAGE_SIZE = 50;
-const LOW_STOCK = 5;
 
 export default async function ProductInventoryPage({ params, searchParams }: PageProps<"/admin/products/[id]/inventory">) {
+  const { lowStockThreshold: LOW_STOCK } = await getSetting("store");
   await requireAdminAccess();
   const { id } = await params;
   const sp = await searchParams;
