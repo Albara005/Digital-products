@@ -8,14 +8,16 @@ const PROVIDERS: readonly PaymentProviderAdapter[] = [tapProvider, stripeProvide
 
 export type CheckoutOptions = {
   providers: { id: ProviderId; label: string }[];
-  /** No gateway configured outside production: orders and top-ups complete without a real charge. */
+  /** No gateway configured outside production (or with DEMO_MODE=true): orders and top-ups complete without a real charge. */
   devMode: boolean;
 };
 
 /** Payment methods to offer at checkout / wallet top-up. A provider is enabled when its secret key is set. */
 export function getCheckoutOptions(): CheckoutOptions {
   const providers = PROVIDERS.filter((p) => p.isEnabled()).map(({ id, label }) => ({ id, label }));
-  return { providers, devMode: providers.length === 0 && process.env.NODE_ENV !== "production" };
+  // DEMO_MODE lets a preview deployment take fake instant payments; never set it on the real store
+  const demo = process.env.NODE_ENV !== "production" || process.env.DEMO_MODE === "true";
+  return { providers, devMode: providers.length === 0 && demo };
 }
 
 export function getProvider(id: ProviderId): PaymentProviderAdapter {
