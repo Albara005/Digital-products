@@ -124,7 +124,7 @@ Next.js 16 (App Router) - React 19 - TypeScript - Prisma 6 - PostgreSQL - Tap Pa
 
 ## النشر على Railway
 
-ملف `railway.json` جاهز: البناء بـ `npm run build`، وتشغيل `npx prisma migrate deploy` قبل كل نشر، والتشغيل بـ `npm run start`، وفحص الصحة على `/api/health`، وإعادة التشغيل تلقائياً عند التعطل.
+ملف `railway.json` جاهز: البناء بـ `npm run build`، وعند كل تشغيل يطبّق `npm run start` الـ migrations والبيانات الأولية تلقائياً قبل تشغيل المتجر، والتشغيل بـ `npm run start`، وفحص الصحة على `/api/health`، وإعادة التشغيل تلقائياً عند التعطل.
 
 1. ارفع المشروع إلى GitHub.
 2. في [Railway](https://railway.com): **New Project → Deploy from GitHub repo** واختر المستودع.
