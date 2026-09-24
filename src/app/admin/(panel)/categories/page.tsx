@@ -23,7 +23,7 @@ export default async function CategoriesPage() {
     <>
       <PageHeader title="الفئات" description="تنظيم المنتجات في أقسام تظهر في المتجر." />
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section className="card overflow-hidden" aria-label="قائمة الفئات">
           {categories.length === 0 ? (
             <EmptyState title="لا توجد فئات بعد" body="أضف أول فئة من النموذج المجاور، ثم أضف المنتجات إليها." />

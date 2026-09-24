@@ -39,10 +39,9 @@ function Section({ id, title, description, children }: { id: string; title: stri
   );
 }
 
-export default async function AccountPage({ searchParams }: { searchParams: Promise<{ setup2fa?: string | string[] }> }) {
+export default async function AccountPage() {
   // Reachable without 2FA even when REQUIRE_ADMIN_2FA=true: this is where it gets enabled.
   const session = await requireAdminAccess(undefined, { allowWithoutTwoFactor: true });
-  const { setup2fa } = await searchParams;
 
   const admin = await prisma.admin.findUnique({
     where: { id: session.adminId },
@@ -70,7 +69,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
     <>
       <PageHeader title="حسابي والأمان" description="بيانات دخولك إلى لوحة التحكم وطرق حمايتها." />
 
-      {!admin.totpEnabledAt && (required || setup2fa) && (
+      {!admin.totpEnabledAt && required && (
         <div className="mb-6">
           <Callout tone="warn">
             <strong>التحقق بخطوتين إلزامي لأعضاء الفريق.</strong> فعّله أدناه لمتابعة استخدام لوحة التحكم.

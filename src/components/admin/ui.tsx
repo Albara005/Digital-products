@@ -102,7 +102,7 @@ export function Callout({ tone = "info", children }: { tone?: "info" | "warn" | 
 /** Table wrapper: horizontal scroll on narrow screens, consistent density. */
 export function DataTable({ children }: { children: ReactNode }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table className="w-full min-w-[640px] text-sm [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-2.5 [&_th]:text-start [&_th]:text-xs [&_th]:font-medium [&_th]:text-muted [&_tbody_tr]:border-t [&_tbody_tr]:border-border [&_tbody_tr:hover]:bg-surface-2/60">
         {children}
       </table>

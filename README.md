@@ -146,6 +146,7 @@ Next.js 16 (App Router) - React 19 - TypeScript - Prisma 6 - PostgreSQL - Tap Pa
    | `NEXT_PUBLIC_SUPPORT_EMAIL` | إيميل الدعم الظاهر في صفحة التواصل والفوتر |
    | `NEXT_PUBLIC_WHATSAPP_NUMBER` | رقم واتساب الدعم بصيغة دولية بدون `+`، مثل `9665XXXXXXXX` |
    | `TZ` | المنطقة الزمنية لإحصائيات "اليوم" في لوحة التحكم، مثل `Asia/Riyadh` |
+   | `REQUIRE_ADMIN_2FA` | `true` لإجبار كل مدير على تفعيل الدخول بخطوتين قبل استخدام لوحة التحكم (موصى به) |
 
    > **تحذير مهم:** لا تغيّر `INVENTORY_ENCRYPTION_KEY` أبداً بعد رفع أي مخزون، وإلا تصبح جميع الأكواد وبيانات الحسابات المخزنة غير قابلة للقراءة نهائياً. احفظ نسخة منه في مكان آمن.
 
@@ -233,7 +234,7 @@ With no payment key (`TAP_SECRET_KEY`, `STRIPE_SECRET_KEY`) and `NODE_ENV` not `
 **Deploying on Railway**
 
 1. New Project → Deploy from GitHub repo; add a PostgreSQL database.
-2. Set variables: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `AUTH_SECRET`, `INVENTORY_ENCRYPTION_KEY` (**never change it once stock exists**: existing stock would become unreadable), `NEXT_PUBLIC_SITE_URL` (inlined at build time, so redeploy after changing it), `TAP_SECRET_KEY` and/or `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `NEXT_PUBLIC_SUPPORT_EMAIL`, `NEXT_PUBLIC_WHATSAPP_NUMBER`, `TZ` (e.g. `Asia/Riyadh`).
+2. Set variables: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `AUTH_SECRET`, `INVENTORY_ENCRYPTION_KEY` (**never change it once stock exists**: existing stock would become unreadable), `NEXT_PUBLIC_SITE_URL` (inlined at build time, so redeploy after changing it), `TAP_SECRET_KEY` and/or `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `NEXT_PUBLIC_SUPPORT_EMAIL`, `NEXT_PUBLIC_WHATSAPP_NUMBER`, `TZ` (e.g. `Asia/Riyadh`), `REQUIRE_ADMIN_2FA=true` (recommended).
 3. `railway.json` builds with `npm run build`, runs `npx prisma migrate deploy` before each deploy, starts with `npm run start`, health-checks `/api/health` and restarts on failure.
 4. Generate a domain, then (Stripe only) add the webhook endpoint `https://<domain>/api/stripe/webhook`. Tap notifications go to `https://<domain>/api/tap/webhook` automatically.
 5. Seed once: `railway run npm run db:seed`. If your machine can't reach `postgres.railway.internal`, use the public URL (`railway run sh -c 'DATABASE_URL="$DATABASE_PUBLIC_URL" npm run db:seed'` after adding `DATABASE_PUBLIC_URL=${{Postgres.DATABASE_PUBLIC_URL}}`) or `railway ssh`. Use `SEED_SAMPLE_PRODUCTS=false` to skip the sample catalogue, and remove `DEMO-` stock before going live.

@@ -43,6 +43,16 @@ const actionLabel: Record<string, string> = {
   "order.retry_delivery": "إعادة التسليم التلقائي",
   "order.reveal_note": "إظهار نص تسليم",
   "order.refund": "استرجاع طلب",
+  "order.refund_unrecorded": "استرجاع غير مسجّل في الطلب",
+  "coupon.create": "إضافة كوبون",
+  "coupon.update": "تعديل كوبون",
+  "coupon.delete": "حذف كوبون",
+  "coupon.activate": "تفعيل كوبون",
+  "coupon.deactivate": "إيقاف كوبون",
+  "review.approve": "قبول تقييم",
+  "review.reject": "رفض تقييم",
+  "review.delete": "حذف تقييم",
+  "wallet.adjust": "تعديل رصيد محفظة",
 };
 
 const PREFIXES = ["auth.", "account.", "team.", "order.", "product.", "category.", "inventory.", "coupon.", "review.", "wallet."];
@@ -50,7 +60,9 @@ const PREFIXES = ["auth.", "account.", "team.", "order.", "product.", "category.
 // Sensitive or security-relevant actions get a coloured badge
 function actionTone(action: string) {
   if (action === "inventory.reveal" || action === "order.reveal_note") return "bg-fuchsia/15 text-fuchsia ring-1 ring-fuchsia/30";
-  if (action.endsWith("_failed") || action.endsWith(".delete") || action === "team.remove") return "bg-danger/15 text-danger ring-1 ring-danger/30";
+  if (action.endsWith("_failed") || action.endsWith("_unrecorded") || action.endsWith(".delete") || action === "team.remove") {
+    return "bg-danger/15 text-danger ring-1 ring-danger/30";
+  }
   if (action.startsWith("auth.") || action.startsWith("account.") || action.startsWith("team.")) return "bg-volt/10 text-volt ring-1 ring-volt/25";
   return "bg-surface-2 text-text ring-1 ring-border";
 }
@@ -78,6 +90,10 @@ function targetHref(type: string | null, id: string | null, details: Prisma.Json
       return `/admin/categories/${id}`;
     case "admin":
       return "/admin/team";
+    case "coupon":
+      return `/admin/coupons/${id}`;
+    case "review":
+      return "/admin/reviews";
     case "inventory": {
       const productId = detailsRecord(details)?.productId;
       return typeof productId === "string" ? `/admin/products/${productId}/inventory` : null;

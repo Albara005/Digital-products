@@ -254,7 +254,7 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
               {!canRetry && !canRefund && (
                 <p className="text-sm text-muted">
                   {order.status === "REFUNDED"
-                    ? `تم استرجاع الطلب${order.refundedAt ? ` ${formatDate(order.refundedAt)}` : ""}. التفاصيل في سجل النشاط.`
+                    ? `تم استرجاع الطلب${order.refundedAt ? ` ${formatDate(order.refundedAt)}` : ""}. لا توجد إجراءات أخرى.`
                     : order.status === "PENDING"
                       ? "بانتظار إتمام الدفع — لا يمكن التسليم قبل تأكيده."
                       : order.status === "FAILED"

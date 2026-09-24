@@ -30,15 +30,14 @@ export default async function TeamPage() {
         description="من يمكنه الدخول إلى لوحة التحكم. الموظف لا يرى صفحة الفريق ولا سجل النشاط. إعدادات حسابك أنت في «حسابي والأمان»."
       />
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid grid-cols-1 items-start gap-6 2xl:grid-cols-[minmax(0,1fr)_340px]">
         <section className="card overflow-hidden" aria-label="أعضاء الفريق">
           <DataTable>
             <thead>
               <tr>
                 <th>العضو</th>
                 <th>الصلاحية</th>
-                <th>التحقق بخطوتين</th>
-                <th>منذ</th>
+                <th className="whitespace-nowrap">التحقق بخطوتين</th>
                 <th>
                   <span className="sr-only">إجراءات</span>
                 </th>
@@ -58,10 +57,11 @@ export default async function TeamPage() {
                       <span className="block text-xs text-muted" dir="ltr">
                         <span className="block text-end">{a.email}</span>
                       </span>
+                      <span className="mt-0.5 block whitespace-nowrap text-[11px] text-muted">منذ {formatDate(a.createdAt)}</span>
                     </td>
                     <td>
                       <span
-                        className={`badge ${
+                        className={`badge whitespace-nowrap ${
                           a.role === "SUPER_ADMIN" ? "bg-fuchsia/15 text-fuchsia" : "bg-surface-2 text-muted ring-1 ring-border"
                         }`}
                       >
@@ -78,14 +78,13 @@ export default async function TeamPage() {
                         <span className="badge bg-surface-2 text-muted ring-1 ring-border">غير مفعّل</span>
                       )}
                     </td>
-                    <td className="whitespace-nowrap text-xs text-muted">{formatDate(a.createdAt)}</td>
                     <td>
                       {isSelf ? (
                         <Link href="/admin/account" className="text-xs text-muted hover:text-volt">
                           من «حسابي والأمان»
                         </Link>
                       ) : (
-                        <div className="flex min-w-56 flex-wrap items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5 [&_button]:whitespace-nowrap">
                           <ActionButton
                             action={resetAdminPassword}
                             fields={{ id: a.id }}
@@ -196,7 +195,7 @@ export default async function TeamPage() {
           </DataTable>
         </section>
 
-        <section className="card p-5" aria-labelledby="add-admin">
+        <section className="card w-full max-w-xl p-5 2xl:max-w-none" aria-labelledby="add-admin">
           <h2 id="add-admin" className="mb-4 font-semibold">
             إضافة عضو
           </h2>
