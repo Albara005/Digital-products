@@ -3,7 +3,16 @@ import type { CouponType, Prisma, ProductType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { formatPrice } from "@/lib/format";
 import { MAX_CART_LINES, MAX_LINE_QUANTITY } from "@/lib/cart";
-import { WALLET_CURRENCY, getWalletBalance } from "@/lib/wallet";
+import { getWalletBalance } from "@/lib/wallet";
+import {
+  BASE_CURRENCY,
+  MIN_GATEWAY_CHARGE_USD_CENTS,
+  chargeStep,
+  convertUsdCents,
+  minGatewayCharge,
+  toUsdCents,
+} from "@/lib/display-currency";
+import { type Fx, USD_FX } from "@/lib/fx";
 import { DEFAULT_LOCALE, type Locale, localized } from "@/i18n/config";
 import { type Dictionary, dictionaryFor } from "@/i18n/server";
 
@@ -15,6 +24,11 @@ import { type Dictionary, dictionaryFor } from "@/i18n/server";
  * quoteCart() is the read-only preview (cart page, checkout pre-check). Checkout re-validates the
  * coupon with claimCoupon() and the wallet balance under row locks inside its transaction, so the
  * numbers a buyer pays are always the ones computed at that moment.
+ *
+ * Currency: catalog prices, coupon amounts and the wallet are USD cents. A quote is made in the
+ * shopper's currency (`fx`): every unit price is converted once with convertUsdCents() (the same
+ * helper the storefront displays with), and every amount of the quote -- lines, subtotal, discount,
+ * wallet part, total, amount due -- is in minor units of that currency. USD quotes are unchanged.
  */
 
 type Db = Prisma.TransactionClient;
@@ -27,6 +41,8 @@ export type QuoteInput = {
   email?: string | null;
   /** Language of the shopper-facing messages and display names (default Arabic). */
   locale?: Locale;
+  /** Currency to price and charge in, with its rate (resolved server-side; default USD). */
+  fx?: Fx;
 };
 
 export type QuoteLine = {
@@ -43,7 +59,9 @@ export type QuoteLine = {
   productType: ProductType;
   imageUrl: string | null;
   quantity: number;
+  /** Minor units of the quote currency (converted from the USD catalog price). */
   unitPriceCents: number;
+  unitPriceUsdCents: number;
   lineTotalCents: number;
   /** This line's share of the coupon discount (0 when the coupon does not cover it) */
   discountCents: number;
@@ -59,9 +77,11 @@ export type Quote =
       totalCents: number;
       amountDueCents: number;
       currency: string;
+      /** Units of `currency` per USD used for this quote (1 for USD). */
+      fxRate: number;
       coupon: { code: string; label: string } | null;
       couponError: string | null;
-      /** Signed-in customers only; null for guests */
+      /** Signed-in customers only, converted to the quote currency; null for guests */
       walletBalanceCents: number | null;
     }
   | { ok: false; error: string };
@@ -137,6 +157,7 @@ export function evaluateCoupon(
   currency: string,
   now: Date = new Date(),
   t: Dictionary = dictionaryFor(DEFAULT_LOCALE),
+  locale: Locale = DEFAULT_LOCALE,
 ): CouponEvaluation {
   if (!coupon.active) return { ok: false, error: t.pricing.invalidCoupon };
   if (coupon.startsAt && coupon.startsAt > now) return { ok: false, error: t.pricing.couponNotStarted };
@@ -151,14 +172,16 @@ export function evaluateCoupon(
   if (coupon.minSubtotalCents != null && eligibleSubtotal < coupon.minSubtotalCents) {
     return {
       ok: false,
-      error: t.pricing.couponMin(formatPrice(coupon.minSubtotalCents, currency), !!(coupon.categoryId || coupon.productId)),
+      error: t.pricing.couponMin(formatPrice(coupon.minSubtotalCents, currency, locale), !!(coupon.categoryId || coupon.productId)),
     };
   }
 
   let discount: number;
   if (coupon.type === "PERCENT") {
     const percent = Math.min(Math.max(coupon.value, 0), 100);
-    discount = Math.round((eligibleSubtotal * percent) / 100);
+    // Rounded to the currency's charge step (0.010 for KWD/OMR/BHD) so every charge stays payable
+    const step = chargeStep(currency);
+    discount = Math.round((eligibleSubtotal * percent) / 100 / step) * step;
     if (coupon.maxDiscountCents != null) discount = Math.min(discount, coupon.maxDiscountCents);
   } else {
     discount = Math.max(coupon.value, 0);
@@ -173,20 +196,42 @@ export function evaluateCoupon(
   return { ok: true, discountCents: discount, lineDiscounts };
 }
 
-/** Short description, e.g. "خصم 10% (بحد أقصى $5.00)" or "خصم $5.00 على «بطاقات ألعاب»" ("10% off (up to $5.00)"). */
+/**
+ * A coupon's USD money rules (FIXED value, minimum subtotal, PERCENT cap) converted to `fx`'s
+ * currency with the storefront conversion; PERCENT values are unchanged. USD returns the coupon as is.
+ */
+export function couponInCurrency<C extends Pick<CouponRules, "type" | "value" | "minSubtotalCents" | "maxDiscountCents">>(
+  coupon: C,
+  fx: Fx,
+): C {
+  if (fx.currency === BASE_CURRENCY) return coupon;
+  const convert = (cents: number) => convertUsdCents(Math.max(0, cents), fx.currency, fx.rate);
+  return {
+    ...coupon,
+    value: coupon.type === "FIXED" ? convert(coupon.value) : coupon.value,
+    minSubtotalCents: coupon.minSubtotalCents == null ? null : convert(coupon.minSubtotalCents),
+    maxDiscountCents: coupon.maxDiscountCents == null ? null : convert(coupon.maxDiscountCents),
+  };
+}
+
+/**
+ * Short description, e.g. "خصم 10% (بحد أقصى $5.00)" or "خصم $5.00 على «بطاقات ألعاب»" ("10% off (up to $5.00)").
+ * Money values must already be in `currency` (see couponInCurrency).
+ */
 export function couponLabel(
   coupon: Pick<CouponRules, "type" | "value" | "maxDiscountCents">,
   currency: string,
   scopeName?: string | null,
   t: Dictionary = dictionaryFor(DEFAULT_LOCALE),
+  locale: Locale = DEFAULT_LOCALE,
 ): string {
   const base =
     coupon.type === "PERCENT"
       ? t.pricing.couponLabelPercent(
           coupon.value,
-          coupon.maxDiscountCents != null ? formatPrice(coupon.maxDiscountCents, currency) : null,
+          coupon.maxDiscountCents != null ? formatPrice(coupon.maxDiscountCents, currency, locale) : null,
         )
-      : t.pricing.couponLabelFixed(formatPrice(coupon.value, currency));
+      : t.pricing.couponLabelFixed(formatPrice(coupon.value, currency, locale));
   return scopeName ? t.pricing.couponScope(base, scopeName) : base;
 }
 
@@ -199,9 +244,14 @@ export function countCustomerRedemptions(db: Db, couponId: string, email: string
 
 type PricedCart = { ok: true; lines: QuoteLine[]; currency: string; subtotalCents: number } | { ok: false; error: string };
 
+/** The USD catalog price of one unit in `fx`'s currency (the storefront shows exactly this). */
+export function unitPriceIn(usdCents: number, fx: Fx): number {
+  return convertUsdCents(usdCents, fx.currency, fx.rate);
+}
+
 const VARIANT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-async function priceCart(items: QuoteInput["items"], locale: Locale): Promise<PricedCart> {
+async function priceCart(items: QuoteInput["items"], locale: Locale, fx: Fx): Promise<PricedCart> {
   const t = dictionaryFor(locale);
   if (!Array.isArray(items) || items.length === 0) return { ok: false, error: t.pricing.cartEmpty };
   if (items.length > MAX_CART_LINES) {
@@ -244,6 +294,9 @@ async function priceCart(items: QuoteInput["items"], locale: Locale): Promise<Pr
     if (quantity > MAX_LINE_QUANTITY) {
       return { ok: false, error: t.pricing.maxQuantity(`${displayName} - ${displayLabel}`, MAX_LINE_QUANTITY) };
     }
+    // The catalog is priced in USD; convert each unit price once (never a converted total)
+    if (variant.currency.toUpperCase() !== BASE_CURRENCY) return { ok: false, error: t.pricing.mixedCurrency };
+    const unitPriceCents = unitPriceIn(variant.priceCents, fx);
     lines.push({
       variantId,
       productId: product.id,
@@ -256,15 +309,14 @@ async function priceCart(items: QuoteInput["items"], locale: Locale): Promise<Pr
       productType: product.type,
       imageUrl: product.imageUrl,
       quantity,
-      unitPriceCents: variant.priceCents,
-      lineTotalCents: variant.priceCents * quantity,
+      unitPriceCents,
+      unitPriceUsdCents: variant.priceCents,
+      lineTotalCents: unitPriceCents * quantity,
       discountCents: 0,
     });
   }
 
-  const currencies = new Set(variants.map((v) => v.currency.toUpperCase()));
-  if (currencies.size !== 1) return { ok: false, error: t.pricing.mixedCurrency };
-  const currency = [...currencies][0];
+  const currency = fx.currency;
   const subtotalCents = lines.reduce((sum, line) => sum + line.lineTotalCents, 0);
   return { ok: true, lines, currency, subtotalCents };
 }
@@ -288,19 +340,40 @@ const couponSelect = {
   product: { select: { name: true, nameEn: true } },
 } satisfies Prisma.CouponSelect;
 
-/** Stripe rejects charges under $0.50; Tap has similar floors. */
-export const MIN_GATEWAY_CHARGE_CENTS = 50;
+/** Stripe rejects charges under $0.50; Tap has similar floors. Per currency: minGatewayCharge(). */
+export const MIN_GATEWAY_CHARGE_CENTS = MIN_GATEWAY_CHARGE_USD_CENTS;
 
 /**
- * How much of the wallet to spend: as much as possible, but never leave a gateway balance
- * below MIN_GATEWAY_CHARGE_CENTS (it would be rejected); the wallet covers everything or
- * leaves at least the minimum to pay by card.
+ * How much of the wallet to spend (all amounts in the order currency): as much as possible, but
+ * never leave a gateway balance below `minChargeCents` (it would be rejected); the wallet covers
+ * everything or leaves at least the minimum to pay by card.
  */
-export function walletShare(balanceCents: number, totalCents: number): number {
+export function walletShare(balanceCents: number, totalCents: number, minChargeCents = MIN_GATEWAY_CHARGE_CENTS): number {
   const applied = Math.max(0, Math.min(balanceCents, totalCents));
   const due = totalCents - applied;
-  if (due > 0 && due < MIN_GATEWAY_CHARGE_CENTS) return Math.max(0, totalCents - MIN_GATEWAY_CHARGE_CENTS);
+  if (due > 0 && due < minChargeCents) return Math.max(0, totalCents - minChargeCents);
   return applied;
+}
+
+/**
+ * The wallet part of an order in `fx`'s currency, from a USD wallet balance, and the USD cents to
+ * debit for it. The balance is shown converted (convertUsdCents), so the same conversion bounds
+ * what can be applied; the debit converts back rounding DOWN (the customer is never charged more
+ * than shown) and never exceeds the balance. A part worth less than one USD cent is not applied.
+ */
+export function walletPart(balanceUsdCents: number, totalCents: number, fx: Fx): { appliedCents: number; debitUsdCents: number } {
+  if (fx.currency === BASE_CURRENCY) {
+    const applied = walletShare(balanceUsdCents, totalCents);
+    return { appliedCents: applied, debitUsdCents: applied };
+  }
+  const balance = convertUsdCents(Math.max(0, balanceUsdCents), fx.currency, fx.rate);
+  const applied = walletShare(balance, totalCents, minGatewayCharge(fx.currency, fx.rate));
+  const debit = Math.min(balanceUsdCents, toUsdFloor(applied, fx));
+  return debit > 0 ? { appliedCents: applied, debitUsdCents: debit } : { appliedCents: 0, debitUsdCents: 0 };
+}
+
+function toUsdFloor(minor: number, fx: Fx): number {
+  return toUsdCents(minor, fx.currency, fx.rate, "floor");
 }
 
 /**
@@ -311,7 +384,8 @@ export function walletShare(balanceCents: number, totalCents: number): number {
 export async function quoteCart(input: QuoteInput): Promise<Quote> {
   const locale = input.locale ?? DEFAULT_LOCALE;
   const t = dictionaryFor(locale);
-  const priced = await priceCart(input.items, locale);
+  const fx = input.fx ?? USD_FX;
+  const priced = await priceCart(input.items, locale, fx);
   if (!priced.ok) return priced;
   const { lines, currency, subtotalCents } = priced;
 
@@ -326,7 +400,8 @@ export async function quoteCart(input: QuoteInput): Promise<Quote> {
     if (!row) {
       couponError = t.pricing.invalidCoupon;
     } else {
-      const result = evaluateCoupon(row, lines, currency, new Date(), t);
+      const rules = couponInCurrency(row, fx);
+      const result = evaluateCoupon(rules, lines, currency, new Date(), t, locale);
       if (!result.ok) {
         couponError = result.error;
       } else if (
@@ -343,7 +418,7 @@ export async function quoteCart(input: QuoteInput): Promise<Quote> {
           : row.category
             ? localized(locale, row.category.name, row.category.nameEn)
             : null;
-        coupon = { code: row.code, label: couponLabel(row, currency, scope, t) };
+        coupon = { code: row.code, label: couponLabel(rules, currency, scope, t, locale) };
       }
     }
   }
@@ -352,10 +427,9 @@ export async function quoteCart(input: QuoteInput): Promise<Quote> {
   let walletBalanceCents: number | null = null;
   let walletAppliedCents = 0;
   if (input.customerId) {
-    walletBalanceCents = await getWalletBalance(input.customerId);
-    if (input.useWallet && currency === WALLET_CURRENCY) {
-      walletAppliedCents = walletShare(walletBalanceCents, totalCents);
-    }
+    const balanceUsd = await getWalletBalance(input.customerId);
+    walletBalanceCents = convertUsdCents(balanceUsd, fx.currency, fx.rate);
+    if (input.useWallet) walletAppliedCents = walletPart(balanceUsd, totalCents, fx).appliedCents;
   }
 
   return {
@@ -367,6 +441,7 @@ export async function quoteCart(input: QuoteInput): Promise<Quote> {
     totalCents,
     amountDueCents: totalCents - walletAppliedCents,
     currency,
+    fxRate: fx.rate,
     coupon,
     couponError,
     walletBalanceCents,
@@ -381,9 +456,10 @@ export async function quoteCart(input: QuoteInput): Promise<Quote> {
  */
 export async function claimCoupon(
   tx: Db,
-  input: { code: string; lines: DiscountableLine[]; currency: string; email: string; locale?: Locale },
+  input: { code: string; lines: DiscountableLine[]; fx: Fx; email: string; locale?: Locale },
 ): Promise<{ couponId: string; code: string; discountCents: number }> {
-  const t = dictionaryFor(input.locale ?? DEFAULT_LOCALE);
+  const locale = input.locale ?? DEFAULT_LOCALE;
+  const t = dictionaryFor(locale);
   const code = normalizeCouponCode(input.code);
   if (!code) throw new CouponError(t.pricing.invalidCoupon);
 
@@ -392,7 +468,7 @@ export async function claimCoupon(
   if (!locked[0]) throw new CouponError(t.pricing.invalidCoupon);
   const coupon = await tx.coupon.findUniqueOrThrow({ where: { id: locked[0].id }, select: couponSelect });
 
-  const result = evaluateCoupon(coupon, input.lines, input.currency, new Date(), t);
+  const result = evaluateCoupon(couponInCurrency(coupon, input.fx), input.lines, input.fx.currency, new Date(), t, locale);
   if (!result.ok) throw new CouponError(result.error);
 
   // Committed redemptions of earlier lock holders are visible now (READ COMMITTED, new statement)

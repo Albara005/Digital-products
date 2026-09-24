@@ -3,7 +3,7 @@ import { randomInt } from "crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSetting } from "@/lib/settings";
-import { WALLET_CURRENCY, creditWallet } from "@/lib/wallet";
+import { creditWallet } from "@/lib/wallet";
 
 /*
  * Referral program.
@@ -58,7 +58,7 @@ export async function getReferralSettings(): Promise<ReferralSettings> {
   }
 }
 
-/** PERCENT of the order value (capped at maxRewardCents), or a FIXED amount in cents. */
+/** PERCENT of the order's USD value (capped at maxRewardCents), or a FIXED amount; all USD cents. */
 export function computeRewardCents(totalCents: number, s: ReferralSettings): number {
   let cents = s.rewardType === "PERCENT" ? Math.floor((totalCents * s.rewardValue) / 100) : Math.trunc(s.rewardValue);
   if (s.maxRewardCents !== null) cents = Math.min(cents, s.maxRewardCents);
@@ -137,8 +137,7 @@ export async function recordReferralReward(orderId: string): Promise<boolean> {
     select: {
       id: true,
       status: true,
-      totalCents: true,
-      currency: true,
+      totalUsdCents: true,
       paidAt: true,
       customerId: true,
       referralReward: { select: { id: true } },
@@ -149,11 +148,10 @@ export async function recordReferralReward(orderId: string): Promise<boolean> {
   if (order.status !== "PAID" && order.status !== "FULFILLED") return false;
   const referrerId = order.customer.referredById;
   if (!referrerId || referrerId === order.customerId) return false;
-  // Rewards are wallet credit, and the wallet holds a single currency
-  if (order.currency !== WALLET_CURRENCY) return false;
-
+  // Rewards are wallet credit (USD): the minimum and the percentage apply to the order's USD value,
+  // whatever currency the referee paid in
   const settings = await getReferralSettings();
-  if (!settings.enabled || order.totalCents < settings.minOrderCents) return false;
+  if (!settings.enabled || order.totalUsdCents < settings.minOrderCents) return false;
 
   // Only the referee's first paid order counts (a small first order doesn't let a later one qualify)
   const earlier = await prisma.order.count({
@@ -165,7 +163,7 @@ export async function recordReferralReward(orderId: string): Promise<boolean> {
   });
   if (earlier > 0) return false;
 
-  const amountCents = computeRewardCents(order.totalCents, settings);
+  const amountCents = computeRewardCents(order.totalUsdCents, settings);
   if (amountCents <= 0) return false;
 
   try {

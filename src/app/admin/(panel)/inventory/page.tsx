@@ -3,11 +3,11 @@ import { getSetting } from "@/lib/settings";
 import Link from "next/link";
 import type { InventoryStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { formatPrice } from "@/lib/format";
 import { LayersIcon } from "@/components/admin/icons";
 import { firstParam } from "@/components/admin/Pagination";
 import { DataTable, EmptyState, PageHeader, ProductTypeBadge, btnSm } from "@/components/admin/ui";
 import { requireAdminAccess } from "../../_lib/guard";
+import { getAdminMoney } from "../../_lib/money";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "المخزون" };
@@ -17,6 +17,7 @@ export default async function InventoryOverviewPage({ searchParams }: PageProps<
   const { lowStockThreshold: LOW_STOCK } = await getSetting("store");
   await requireAdminAccess();
   const sp = await searchParams;
+  const money = await getAdminMoney();
   const lowOnly = firstParam(sp.low) === "1";
   const q = firstParam(sp.q);
 
@@ -119,7 +120,7 @@ export default async function InventoryOverviewPage({ searchParams }: PageProps<
                       {r.product.name}
                     </Link>
                     <span className="block text-xs text-muted">
-                      <bdi>{r.label}</bdi> · <span className="font-display">{formatPrice(r.priceCents, r.currency)}</span>
+                      <bdi>{r.label}</bdi> · <span className="font-display">{r.currency === "USD" ? money.usd(r.priceCents) : money.own(r.priceCents, r.currency)}</span>
                       {!r.product.active && " · معطّل"}
                     </span>
                   </td>

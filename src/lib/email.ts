@@ -79,7 +79,7 @@ export async function sendOrderDeliveredEmail(orderId: string, locale?: Locale):
           `<td style="padding:8px 0;border-bottom:1px solid #eee;text-align:${c.qtyAlign};">× ${item.quantity}</td></tr>`,
       )
       .join("");
-    const total = formatPrice(order.totalCents, order.currency);
+    const total = formatPrice(order.totalCents, order.currency, lang); // the order's own charged currency
     const greeting = c.order.greeting(order.customer.name ? escapeHtml(order.customer.name) : null);
 
     const html = `<!doctype html>

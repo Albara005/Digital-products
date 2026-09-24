@@ -5,9 +5,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { ProductType } from "@prisma/client";
 import { useLocalePath, useT } from "@/i18n/client";
 import { MAX_LINE_QUANTITY } from "@/lib/cart";
-import { formatPrice } from "@/lib/format";
 import { useCart } from "./cart-provider";
-import { Approx } from "./currency";
+import { useMoney } from "./currency";
 import { IconBag, IconBolt, IconCheck, IconMinus, IconPlus } from "./icons";
 import Link from "./link";
 import { StockIndicator, stockState } from "./ui";
@@ -29,6 +28,10 @@ export function PurchasePanel({ productType, variants }: { productType: ProductT
   const router = useRouter();
   const cart = useCart();
   const t = useT();
+  const money = useMoney();
+  // Checkout converts the unit price once and multiplies, so the total shown is exactly the charge
+  const lineText = (usdCents: number, currency: string, qty: number) =>
+    currency.toUpperCase() === "USD" ? money.format(money.convert(usdCents) * qty) : money.format(usdCents * qty, currency);
   const localePath = useLocalePath();
   const groupId = useId();
 
@@ -117,9 +120,8 @@ export function PurchasePanel({ productType, variants }: { productType: ProductT
                 </span>
                 <span className="flex shrink-0 flex-col items-end text-end">
                   <span dir="ltr" className="font-display text-base font-bold tabular-nums">
-                    {formatPrice(v.priceCents, v.currency)}
+                    {lineText(v.priceCents, v.currency, 1)}
                   </span>
-                  <Approx cents={v.priceCents} currency={v.currency} />
                 </span>
               </label>
             );
@@ -131,9 +133,8 @@ export function PurchasePanel({ productType, variants }: { productType: ProductT
         <div>
           <p className="text-xs text-muted">{t.purchase.total}</p>
           <p dir="ltr" className="font-display text-3xl font-bold text-volt tabular-nums sm:text-4xl">
-            {formatPrice(selected.priceCents * qty, selected.currency)}
+            {lineText(selected.priceCents, selected.currency, qty)}
           </p>
-          <Approx cents={selected.priceCents * qty} currency={selected.currency} className="text-sm" />
         </div>
 
         <div>

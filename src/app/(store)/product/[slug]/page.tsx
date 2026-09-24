@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { currencyDecimals } from "@/lib/payments/currency";
 import { notFound } from "next/navigation";
 import { MAX_LINE_QUANTITY } from "@/lib/cart";
 import { siteUrl } from "@/lib/email";
@@ -255,8 +256,10 @@ type ProductForJsonLd = NonNullable<Awaited<ReturnType<typeof getProductBySlug>>
 function productJsonLd(product: ProductForJsonLd, rating: RatingBreakdown, path: string) {
   const base = siteUrl();
   const url = `${base}${path}`;
+  // Structured data uses the catalog's own (USD) prices, not the visitor's currency
   const currency = product.variants[0]?.currency ?? "USD";
-  const prices = product.variants.filter((v) => v.currency === currency).map((v) => v.priceCents / 100);
+  const decimals = currencyDecimals(currency);
+  const prices = product.variants.filter((v) => v.currency === currency).map((v) => v.priceCents / 10 ** decimals);
   const inStock = product.type === "SERVICE" || product.variants.some((v) => v.available > 0);
   return {
     "@context": "https://schema.org",
@@ -272,8 +275,8 @@ function productJsonLd(product: ProductForJsonLd, rating: RatingBreakdown, path:
           offers: {
             "@type": "AggregateOffer",
             priceCurrency: currency,
-            lowPrice: Math.min(...prices).toFixed(2),
-            highPrice: Math.max(...prices).toFixed(2),
+            lowPrice: Math.min(...prices).toFixed(decimals),
+            highPrice: Math.max(...prices).toFixed(decimals),
             offerCount: prices.length,
             availability: inStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
             url,

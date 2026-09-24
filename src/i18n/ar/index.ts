@@ -247,7 +247,6 @@ export const ar = {
     inProgress: "قيد التجهيز",
     steps: ["تم إنشاء الطلب", "تم الدفع", "تم التسليم"],
     stepsLabel: "مراحل الطلب",
-    chargedInUsd: "المبالغ بالدولار الأمريكي، وهي العملة التي تم الدفع بها.",
   },
 
   account: {
@@ -495,9 +494,10 @@ export const ar = {
     orderDescription: (shortId: string) => `طلب Nitro Store #${shortId}`,
     topupAmountRequired: "أدخل مبلغ الشحن",
     topupAmountInvalid: "مبلغ الشحن غير صالح",
-    topupMin: (dollars: number) => `أقل مبلغ للشحن هو ${dollars} دولار`,
-    topupMax: (dollars: number) => `أقصى مبلغ للشحن هو ${dollars} دولار`,
-    topupWhole: "مبلغ الشحن يجب أن يكون بالدولار الكامل",
+    topupMin: (amount: string) => `أقل مبلغ للشحن هو ${amount}`,
+    topupMax: (amount: string) => `أقصى مبلغ للشحن هو ${amount}`,
+    topupWhole: "مبلغ الشحن يجب أن يكون رقماً صحيحاً بدون كسور",
+    currencyUnavailable: "هذه العملة غير متاحة حالياً. اختر عملة أخرى وحاول مجدداً.",
     signInForTopup: "يجب تسجيل الدخول لشحن المحفظة",
     topupDescription: "شحن رصيد محفظة Nitro Store",
   },

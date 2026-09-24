@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ComponentType, type SVGProps } from "react";
 import {
   BoxIcon,
@@ -19,6 +19,7 @@ import {
   TagIcon,
   UsersIcon,
 } from "./icons";
+import { ADMIN_CURRENCY_COOKIE, CURRENCY_COOKIE_MAX_AGE, CURRENCY_NAMES_AR, type StoreCurrency } from "@/lib/display-currency";
 
 type NavItem = {
   href: string;
@@ -32,6 +33,8 @@ type Props = {
   admin: { name: string; email: string; role: "SUPER_ADMIN" | "STAFF" };
   awaitingDelivery: number;
   logoutAction: () => Promise<void>;
+  /** The admin's display currency and the enabled choices (USD first). */
+  currency: { selected: string; options: string[] };
 };
 
 function isActive(pathname: string, item: NavItem) {
@@ -39,7 +42,40 @@ function isActive(pathname: string, item: NavItem) {
   return pathname === item.href || pathname.startsWith(`${item.href}/`);
 }
 
-export function AdminNav({ admin, awaitingDelivery, logoutAction }: Props) {
+/** Admin display currency: every aggregate is shown in it; stored per browser in its own cookie. */
+function CurrencyPicker({ selected, options }: Props["currency"]) {
+  const router = useRouter();
+  const [value, setValue] = useState(selected);
+  if (options.length <= 1) return null;
+  return (
+    <label className="mb-3 flex items-center gap-2 px-1 text-xs text-muted">
+      <span className="shrink-0">عملة العرض</span>
+      <select
+        value={value}
+        onChange={(e) => {
+          const next = e.target.value;
+          setValue(next);
+          try {
+            document.cookie = `${ADMIN_CURRENCY_COOKIE}=${next}; path=/admin; max-age=${CURRENCY_COOKIE_MAX_AGE}; samesite=lax`;
+          } catch {
+            // Cookies blocked: nothing to remember
+          }
+          router.refresh();
+        }}
+        className="h-8 min-w-0 flex-1 rounded-lg border border-border bg-surface-2 px-2 font-display text-xs font-bold text-text focus:border-volt focus:outline-none"
+        aria-label="عملة العرض في لوحة التحكم"
+      >
+        {options.map((code) => (
+          <option key={code} value={code}>
+            {code} — {CURRENCY_NAMES_AR[code as StoreCurrency] ?? code}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+export function AdminNav({ admin, awaitingDelivery, logoutAction, currency }: Props) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -108,6 +144,7 @@ export function AdminNav({ admin, awaitingDelivery, logoutAction }: Props) {
 
   const account = (
     <div className="border-t border-border pt-4">
+      <CurrencyPicker selected={currency.selected} options={currency.options} />
       <div className="mb-3 flex items-center gap-3 px-1">
         <span className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-2 text-sm font-bold text-volt ring-1 ring-border">
           {admin.name.trim().charAt(0) || "؟"}

@@ -1,14 +1,17 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/audit";
+import { minorToInput } from "@/lib/display-currency";
 import { requireAdminAccess } from "../../../_lib/guard";
+import { getAdminMoney } from "../../../_lib/money";
 import { parseRange } from "../range";
 
 export const dynamic = "force-dynamic";
 
 const MAX_ORDERS = 20_000;
 
-const HEADER = [
+/** Order amounts are in the order's own currency (column "العملة"); the last order columns are its USD and admin-currency values. */
+const header = (adminCurrency: string) => [
   "رقم الطلب",
   "تاريخ الإنشاء",
   "تاريخ الدفع",
@@ -21,12 +24,15 @@ const HEADER = [
   "من المحفظة",
   "إجمالي الطلب",
   "العملة",
+  "سعر الصرف (وحدة لكل دولار)",
+  "الإجمالي بالدولار (USD)",
+  `الإجمالي بعملة العرض (${adminCurrency})`,
   "المنتج",
   "الخيار",
   "الكمية",
   "سعر الوحدة",
   "قيمة السطر",
-  "تكلفة الوحدة (الحالية)",
+  "تكلفة الوحدة (الحالية، USD)",
   "تاريخ التسليم",
 ];
 
@@ -39,7 +45,8 @@ function cell(value: string | number | null | undefined): string {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-const money = (cents: number | null) => (cents === null ? "" : (cents / 100).toFixed(2));
+/** Minor units -> plain decimal with the currency's own decimals ("18.75", "7.210"). */
+const money = (minor: number | null, currency: string) => (minor === null ? "" : minorToInput(minor, currency));
 
 /** Local time (the server's TZ) as "YYYY-MM-DD HH:MM", which Excel parses as a date. */
 function stamp(d: Date | null): string {
@@ -55,6 +62,8 @@ function stamp(d: Date | null): string {
 export async function GET(request: NextRequest) {
   const session = await requireAdminAccess("SUPER_ADMIN");
   const range = parseRange(Object.fromEntries(request.nextUrl.searchParams));
+  const adminMoney = await getAdminMoney();
+  const adminCurrency = adminMoney.fx.currency;
 
   const orders = await prisma.order.findMany({
     where: { paidAt: { gte: range.start, lt: range.end }, status: { in: ["PAID", "FULFILLED", "REFUNDED"] } },
@@ -71,6 +80,8 @@ export async function GET(request: NextRequest) {
       walletAppliedCents: true,
       totalCents: true,
       currency: true,
+      fxRate: true,
+      totalUsdCents: true,
       customer: { select: { email: true } },
       coupon: { select: { code: true } },
       items: {
@@ -87,7 +98,7 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  const lines: string[] = [HEADER.map(cell).join(",")];
+  const lines: string[] = [header(adminCurrency).map(cell).join(",")];
   for (const o of orders) {
     const head = [
       o.id,
@@ -97,11 +108,14 @@ export async function GET(request: NextRequest) {
       o.paymentProvider ?? "",
       o.customer.email,
       o.coupon?.code ?? "",
-      money(o.subtotalCents),
-      money(o.discountCents),
-      money(o.walletAppliedCents),
-      money(o.totalCents),
+      money(o.subtotalCents, o.currency),
+      money(o.discountCents, o.currency),
+      money(o.walletAppliedCents, o.currency),
+      money(o.totalCents, o.currency),
       o.currency,
+      o.fxRate,
+      money(o.totalUsdCents, "USD"),
+      money(adminMoney.minor(o.totalUsdCents), adminCurrency),
     ];
     const items = o.items.length ? o.items : [null];
     for (const it of items) {
@@ -110,9 +124,9 @@ export async function GET(request: NextRequest) {
             it.productName,
             it.variantLabel,
             it.quantity,
-            money(it.unitPriceCents),
-            money(it.unitPriceCents * it.quantity),
-            money(it.variant.costCents),
+            money(it.unitPriceCents, o.currency),
+            money(it.unitPriceCents * it.quantity, o.currency),
+            money(it.variant.costCents, "USD"),
             stamp(it.deliveredAt),
           ]
         : ["", "", "", "", "", "", ""];

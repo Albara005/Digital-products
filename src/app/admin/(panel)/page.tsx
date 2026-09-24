@@ -4,12 +4,14 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { OrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { formatDate, formatPrice } from "@/lib/format";
+import { formatDate } from "@/lib/format";
+import { toUsdCents } from "@/lib/display-currency";
 import { RevenueChart, type RevenuePoint } from "@/components/admin/RevenueChart";
 import { AlertIcon, ChevronLeftIcon } from "@/components/admin/icons";
 import { DataTable, EmptyState, OrderStatusBadge, PageHeader, shortId } from "@/components/admin/ui";
 import { requireAdminAccess } from "../_lib/guard";
 import { addDays, dayKey, startOfDay } from "../_lib/dates";
+import { getAdminMoney } from "../_lib/money";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "الرئيسية" };
@@ -22,6 +24,8 @@ const dayFull = new Intl.DateTimeFormat("ar", { weekday: "long", day: "numeric",
 export default async function AdminDashboardPage() {
   const { lowStockThreshold: LOW_STOCK } = await getSetting("store");
   await requireAdminAccess();
+  // Sums use each order's USD value (totalUsdCents), shown in the admin currency at today's rate
+  const money = await getAdminMoney();
 
   const now = new Date();
   const today = startOfDay(now);
@@ -31,13 +35,13 @@ export default async function AdminDashboardPage() {
   const revenue = { in: REVENUE_STATUSES };
 
   const [todayAgg, last30Agg, prev30Agg, awaiting, chartOrders, stockVariants, soldItems, latest] = await Promise.all([
-    prisma.order.aggregate({ where: { status: revenue, paidAt: { gte: today } }, _sum: { totalCents: true }, _count: true }),
-    prisma.order.aggregate({ where: { status: revenue, paidAt: { gte: since30 } }, _sum: { totalCents: true }, _count: true }),
-    prisma.order.aggregate({ where: { status: revenue, paidAt: { gte: since60, lt: since30 } }, _sum: { totalCents: true } }),
+    prisma.order.aggregate({ where: { status: revenue, paidAt: { gte: today } }, _sum: { totalUsdCents: true }, _count: true }),
+    prisma.order.aggregate({ where: { status: revenue, paidAt: { gte: since30 } }, _sum: { totalUsdCents: true }, _count: true }),
+    prisma.order.aggregate({ where: { status: revenue, paidAt: { gte: since60, lt: since30 } }, _sum: { totalUsdCents: true } }),
     prisma.order.count({ where: { status: "PAID" } }),
     prisma.order.findMany({
       where: { status: revenue, paidAt: { gte: since14 } },
-      select: { paidAt: true, totalCents: true },
+      select: { paidAt: true, totalUsdCents: true },
     }),
     prisma.productVariant.findMany({
       where: { product: { type: { not: "SERVICE" }, active: true } },
@@ -50,7 +54,13 @@ export default async function AdminDashboardPage() {
     }),
     prisma.orderItem.findMany({
       where: { order: { status: revenue, paidAt: { gte: since30 } } },
-      select: { quantity: true, unitPriceCents: true, productName: true, variant: { select: { productId: true } } },
+      select: {
+        quantity: true,
+        unitPriceCents: true,
+        productName: true,
+        variant: { select: { productId: true } },
+        order: { select: { currency: true, fxRate: true } },
+      },
     }),
     prisma.order.findMany({
       orderBy: { createdAt: "desc" },
@@ -59,6 +69,7 @@ export default async function AdminDashboardPage() {
         id: true,
         status: true,
         totalCents: true,
+        totalUsdCents: true,
         currency: true,
         createdAt: true,
         customer: { select: { email: true } },
@@ -73,7 +84,7 @@ export default async function AdminDashboardPage() {
     if (!o.paidAt) continue;
     const key = dayKey(o.paidAt);
     const b = buckets.get(key) ?? { cents: 0, orders: 0 };
-    b.cents += o.totalCents;
+    b.cents += o.totalUsdCents;
     b.orders += 1;
     buckets.set(key, b);
   }
@@ -85,12 +96,12 @@ export default async function AdminDashboardPage() {
       key,
       dayLabel: dayNumber.format(day),
       fullLabel: dayFull.format(day),
-      cents: b?.cents ?? 0,
+      cents: money.minor(b?.cents ?? 0),
       orders: b?.orders ?? 0,
       isToday: i === 13,
     };
   });
-  const total14 = points.reduce((s, p) => s + p.cents, 0);
+  const total14 = chartOrders.reduce((s, o) => s + o.totalUsdCents, 0);
 
   const lowStock = stockVariants
     .map((v) => ({ id: v.id, label: v.label, product: v.product, available: v._count.inventoryItems }))
@@ -102,7 +113,8 @@ export default async function AdminDashboardPage() {
     const key = item.variant.productId;
     const row = byProduct.get(key) ?? { name: item.productName, units: 0, cents: 0 };
     row.units += item.quantity;
-    row.cents += item.quantity * item.unitPriceCents;
+    // Line value in USD at the order's own rate (unit prices are in the order currency)
+    row.cents += toUsdCents(item.quantity * item.unitPriceCents, item.order.currency, item.order.fxRate, "round");
     byProduct.set(key, row);
   }
   const top = [...byProduct.entries()]
@@ -111,8 +123,8 @@ export default async function AdminDashboardPage() {
     .slice(0, 5);
   const topMax = Math.max(1, ...top.map((t) => t.units));
 
-  const rev30 = last30Agg._sum.totalCents ?? 0;
-  const prev30 = prev30Agg._sum.totalCents ?? 0;
+  const rev30 = last30Agg._sum.totalUsdCents ?? 0;
+  const prev30 = prev30Agg._sum.totalUsdCents ?? 0;
   const delta = prev30 > 0 ? Math.round(((rev30 - prev30) / prev30) * 100) : null;
 
   return (
@@ -128,10 +140,10 @@ export default async function AdminDashboardPage() {
       />
 
       <section aria-label="مؤشرات" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatTile label="إيراد اليوم" value={formatPrice(todayAgg._sum.totalCents ?? 0)} sub={`${todayAgg._count} طلب مدفوع`} />
+        <StatTile label="إيراد اليوم" value={money.usd(todayAgg._sum.totalUsdCents ?? 0)} sub={`${todayAgg._count} طلب مدفوع`} />
         <StatTile
           label="إيراد آخر 30 يوماً"
-          value={formatPrice(rev30)}
+          value={money.usd(rev30)}
           sub={
             delta === null ? (
               `${last30Agg._count} طلب`
@@ -171,9 +183,9 @@ export default async function AdminDashboardPage() {
               </h2>
               <p className="text-xs text-muted">الطلبات المدفوعة والمسلّمة حسب تاريخ الدفع · عمود اليوم مميّز</p>
             </div>
-            <p className="font-display text-lg font-bold">{formatPrice(total14)}</p>
+            <p className="font-display text-lg font-bold">{money.usd(total14)}</p>
           </div>
-          <RevenueChart points={points} />
+          <RevenueChart points={points} currency={money.fx.currency} />
         </section>
 
         <section className="card p-5" aria-labelledby="top-title">
@@ -194,7 +206,7 @@ export default async function AdminDashboardPage() {
                     </Link>
                     <span className="shrink-0 text-xs text-muted">
                       <span className="font-display font-semibold text-text">{t.units}</span> وحدة ·{" "}
-                      <span className="font-display">{formatPrice(t.cents)}</span>
+                      <span className="font-display">{money.usd(t.cents)}</span>
                     </span>
                   </div>
                   <div className="h-2 rounded-full bg-surface-2" aria-hidden="true">
@@ -245,7 +257,12 @@ export default async function AdminDashboardPage() {
                     <td>
                       <OrderStatusBadge status={o.status} />
                     </td>
-                    <td className="font-display tabular-nums">{formatPrice(o.totalCents, o.currency)}</td>
+                    <td className="font-display tabular-nums">
+                      {money.own(o.totalCents, o.currency)}
+                      {money.equivalent(o.totalUsdCents, o.currency) && (
+                        <span className="block text-[11px] text-muted">≈ {money.equivalent(o.totalUsdCents, o.currency)}</span>
+                      )}
+                    </td>
                     <td className="whitespace-nowrap text-xs text-muted">{formatDate(o.createdAt)}</td>
                   </tr>
                 ))}

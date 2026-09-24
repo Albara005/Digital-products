@@ -5,10 +5,11 @@ import { formatPrice } from "@/lib/format";
 import { notifyAdmin } from "@/lib/notify";
 import { creditWallet } from "@/lib/wallet";
 
-/** Wallet top-up limits (cents): $5 to $500 in whole dollars. */
-export const TOPUP_MIN_CENTS = 500;
-export const TOPUP_MAX_CENTS = 50_000;
-export const TOPUP_STEP_CENTS = 100;
+/*
+ * Wallet top-ups are charged in the customer's currency (WalletTopup.amountCents, minor units of
+ * WalletTopup.currency) and credit the USD wallet with creditUsdCents, fixed when the top-up is
+ * created from the rate of that moment. Limits per currency: topupLimits() in display-currency.
+ */
 
 /**
  * PENDING (or FAILED, for a payment confirmed late) -> PAID and credits the wallet, in one
@@ -25,9 +26,9 @@ export async function confirmTopupPaid(topupId: string, payment: { providerRef?:
       if (claimed.count === 0) return null;
       const topup = await tx.walletTopup.findUniqueOrThrow({
         where: { id: topupId },
-        select: { customerId: true, amountCents: true, currency: true, provider: true },
+        select: { customerId: true, amountCents: true, currency: true, creditUsdCents: true, provider: true },
       });
-      await creditWallet(tx, topup.customerId, topup.amountCents, { type: "TOPUP", topupId, note: "شحن رصيد المحفظة" });
+      await creditWallet(tx, topup.customerId, topup.creditUsdCents, { type: "TOPUP", topupId, note: "شحن رصيد المحفظة" });
       return topup;
     },
     { maxWait: 10_000, timeout: 20_000 },

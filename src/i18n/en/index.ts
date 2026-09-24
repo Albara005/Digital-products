@@ -227,7 +227,6 @@ export const en: Dictionary = {
     inProgress: "Processing",
     steps: ["Order placed", "Paid", "Delivered"],
     stepsLabel: "Order progress",
-    chargedInUsd: "Amounts are in US dollars, the currency you were charged in.",
   },
 
   account: {
@@ -473,9 +472,10 @@ export const en: Dictionary = {
     orderDescription: (shortId: string) => `Nitro Store order #${shortId}`,
     topupAmountRequired: "Enter a top-up amount",
     topupAmountInvalid: "Invalid top-up amount",
-    topupMin: (dollars: number) => `The minimum top-up is $${dollars}`,
-    topupMax: (dollars: number) => `The maximum top-up is $${dollars}`,
-    topupWhole: "Top-ups must be in whole dollars",
+    topupMin: (amount: string) => `The minimum top-up is ${amount}`,
+    topupMax: (amount: string) => `The maximum top-up is ${amount}`,
+    topupWhole: "Top-ups must be a whole amount (no fractions)",
+    currencyUnavailable: "This currency isn't available. Choose another currency and try again.",
     signInForTopup: "Sign in to top up your wallet",
     topupDescription: "Nitro Store wallet top-up",
   },

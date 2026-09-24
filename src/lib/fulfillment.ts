@@ -112,7 +112,8 @@ export type PaymentConfirmation = {
   tapChargeId?: string;
 };
 
-type HoldRow = { customerId: string; walletAppliedCents: number; couponId: string | null };
+/** walletDebitUsdCents: what the wallet (USD) pays for the order's walletAppliedCents (order currency). */
+type HoldRow = { customerId: string; walletDebitUsdCents: number; couponId: string | null };
 
 /** Gives back what a failing order holds: its wallet debit and its coupon use. Call only on PENDING -> FAILED. */
 async function releaseOrderHolds(tx: Prisma.TransactionClient, orderId: string, order: HoldRow): Promise<void> {
@@ -131,7 +132,7 @@ async function releaseOrderHolds(tx: Prisma.TransactionClient, orderId: string, 
 
 /** Takes the holds again when a FAILED order turns out to be paid. Never throws for a short wallet. */
 async function reacquireOrderHolds(tx: Prisma.TransactionClient, orderId: string, order: HoldRow): Promise<void> {
-  const missing = order.walletAppliedCents - (await orderWalletNetDebit(tx, orderId));
+  const missing = order.walletDebitUsdCents - (await orderWalletNetDebit(tx, orderId));
   if (missing > 0) {
     try {
       await debitWallet(tx, order.customerId, missing, {
@@ -160,7 +161,7 @@ async function reacquireOrderHolds(tx: Prisma.TransactionClient, orderId: string
 export async function markOrderPaid(orderId: string, payment: PaymentConfirmation): Promise<boolean> {
   const paid = await prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<(HoldRow & { status: string; totalCents: number; currency: string })[]>`
-      SELECT status::text AS status, "customerId", "walletAppliedCents", "couponId", "totalCents", currency
+      SELECT status::text AS status, "customerId", "walletDebitUsdCents", "couponId", "totalCents", currency
       FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
     const order = rows[0];
     if (!order || (order.status !== "PENDING" && order.status !== "FAILED")) return null;
@@ -259,7 +260,7 @@ async function failPendingOrderTx(orderId: string): Promise<number | null> {
     const failed = await tx.$queryRaw<HoldRow[]>`
       UPDATE "Order" SET status = 'FAILED', "updatedAt" = NOW()
       WHERE id = ${orderId} AND status = 'PENDING'
-      RETURNING "customerId", "walletAppliedCents", "couponId"`;
+      RETURNING "customerId", "walletDebitUsdCents", "couponId"`;
     if (!failed[0]) return null;
     const units = await releaseOrderReservations(orderId, tx);
     await releaseOrderHolds(tx, orderId, failed[0]);
@@ -363,7 +364,7 @@ export async function fulfillOrder(orderId: string): Promise<void> {
     where: { id: orderId },
     select: {
       status: true,
-      walletAppliedCents: true,
+      walletDebitUsdCents: true,
       items: {
         where: { deliveredAt: null, productType: { not: "SERVICE" } },
         select: { id: true, variantId: true, quantity: true, productName: true, variantLabel: true },
@@ -376,12 +377,12 @@ export async function fulfillOrder(orderId: string): Promise<void> {
     return;
   }
   if (order.status !== "PAID") return;
-  if (order.walletAppliedCents > 0) {
+  if (order.walletDebitUsdCents > 0) {
     // A late payment whose wallet part could not be taken again: don't hand out unpaid goods
     const covered = await orderWalletNetDebit(prisma, orderId);
-    if (covered < order.walletAppliedCents) {
+    if (covered < order.walletDebitUsdCents) {
       console.error(
-        `[fulfillment] Order ${orderId}: wallet part not covered (${covered}/${order.walletAppliedCents} cents). ` +
+        `[fulfillment] Order ${orderId}: wallet part not covered (${covered}/${order.walletDebitUsdCents} USD cents). ` +
           "Not delivering automatically; review manually.",
       );
       alertNeedsManualDelivery(orderId, "رصيد المحفظة لم يعد يغطي جزء الطلب (دفع متأخر)");

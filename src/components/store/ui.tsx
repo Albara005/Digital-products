@@ -1,24 +1,7 @@
-import { formatPrice } from "@/lib/format";
-
 export { StockIndicator, TypeBadge } from "./labels";
 export { LOW_STOCK_THRESHOLD, type StockState, stockState } from "./stock";
-
-/** Prices are Latin-digit, LTR runs isolated from the surrounding Arabic text. */
-export function Price({
-  cents,
-  currency,
-  className = "",
-}: {
-  cents: number;
-  currency: string;
-  className?: string;
-}) {
-  return (
-    <span dir="ltr" className={`font-display font-bold tabular-nums ${className}`}>
-      {formatPrice(cents, currency)}
-    </span>
-  );
-}
+/** Prices: catalog USD amounts converted to the visitor's currency (Price) or fixed amounts (Money). */
+export { Money, Price } from "./currency";
 
 export function SectionHeading({
   index,

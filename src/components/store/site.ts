@@ -3,7 +3,7 @@ import { splitLocale } from "@/i18n/config";
 
 export const SITE_NAME = "Nitro Store";
 
-/** The wallet holds a single currency (top-ups and wallet payments are in USD). */
+/** The wallet is kept in USD cents; it is shown (and topped up) in the shopper's currency. */
 export const WALLET_CURRENCY = "USD";
 
 export const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "support@nitro.store";

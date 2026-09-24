@@ -80,7 +80,7 @@ function ArabicRefundPolicy() {
           </li>
           <li>اذكر رقم الطلب والبريد المستخدم، ووصفاً للمشكلة مع لقطة شاشة إن أمكن.</li>
           <li>نراجع الطلب ونرد عليك في أسرع وقت، وعادةً خلال 24 ساعة.</li>
-          <li>تُعاد المبالغ المعتمدة إلى وسيلة الدفع الأصلية، وقد يستغرق ظهورها في حسابك من 5 إلى 10 أيام عمل بحسب البنك.</li>
+          <li>تُعاد المبالغ المعتمدة إلى وسيلة الدفع الأصلية بالعملة التي دفعت بها، وقد يستغرق ظهورها في حسابك من 5 إلى 10 أيام عمل بحسب البنك.</li>
         </ul>
       </ContentSection>
     </ContentPage>
@@ -143,7 +143,7 @@ function EnglishRefundPolicy() {
           </li>
           <li>Include your order number, the email you used and a description of the problem, with a screenshot if possible.</li>
           <li>We review your request and reply as quickly as possible, usually within 24 hours.</li>
-          <li>Approved refunds go back to the original payment method in US dollars, and may take 5 to 10 business days to appear in your account depending on your bank.</li>
+          <li>Approved refunds go back to the original payment method in the currency you paid in, and may take 5 to 10 business days to appear in your account depending on your bank.</li>
         </ul>
       </ContentSection>
     </ContentPage>

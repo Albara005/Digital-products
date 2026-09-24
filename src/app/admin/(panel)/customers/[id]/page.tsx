@@ -3,7 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { prisma } from "@/lib/prisma";
-import { formatDate, formatPrice } from "@/lib/format";
+import { formatDate } from "@/lib/format";
+import { getAdminMoney } from "../../../_lib/money";
 import { countWalletTransactions, listWalletTransactions, walletTransactionTypeLabel } from "@/lib/wallet";
 import { CopyButton } from "@/components/admin/CopyButton";
 import { WalletAdjustForm } from "@/components/admin/customers/WalletAdjustForm";
@@ -68,6 +69,7 @@ export default async function CustomerDetailPage({ params, searchParams }: PageP
         id: true,
         status: true,
         totalCents: true,
+        totalUsdCents: true,
         walletAppliedCents: true,
         currency: true,
         createdAt: true,
@@ -75,13 +77,15 @@ export default async function CustomerDetailPage({ params, searchParams }: PageP
         _count: { select: { items: true } },
       },
     }),
-    prisma.order.groupBy({ by: ["status"], where: { customerId: id }, _sum: { totalCents: true }, _count: { _all: true } }),
+    prisma.order.groupBy({ by: ["status"], where: { customerId: id }, _sum: { totalUsdCents: true }, _count: { _all: true } }),
     listWalletTransactions(id, { take: LEDGER_PAGE_SIZE, skip: (page - 1) * LEDGER_PAGE_SIZE }),
     countWalletTransactions(id),
   ]);
 
+  // USD sums across currencies; wallet amounts are USD too. Both shown in the admin currency.
+  const money = await getAdminMoney();
   const sumOf = (statuses: string[]) =>
-    byStatus.filter((s) => statuses.includes(s.status)).reduce((a, s) => ({ cents: a.cents + (s._sum.totalCents ?? 0), n: a.n + s._count._all }), { cents: 0, n: 0 });
+    byStatus.filter((s) => statuses.includes(s.status)).reduce((a, s) => ({ cents: a.cents + (s._sum.totalUsdCents ?? 0), n: a.n + s._count._all }), { cents: 0, n: 0 });
   const spent = sumOf(SPENT_STATUSES);
   const refunded = sumOf(["REFUNDED"]);
   const isSuper = session.role === "SUPER_ADMIN";
@@ -107,10 +111,10 @@ export default async function CustomerDetailPage({ params, searchParams }: PageP
       />
 
       <section aria-label="ملخص" className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="المُنفَق" value={formatPrice(spent.cents)} sub={`${spent.n} طلب مدفوع أو مسلّم`} />
+        <Stat label="المُنفَق" value={money.usd(spent.cents)} sub={`${spent.n} طلب مدفوع أو مسلّم`} />
         <Stat label="عدد الطلبات" value={String(customer._count.orders)} sub="بكل الحالات" />
-        <Stat label="المسترجع" value={formatPrice(refunded.cents)} sub={`${refunded.n} طلب`} />
-        <Stat label="رصيد المحفظة" value={formatPrice(customer.walletBalanceCents)} sub={`${ledgerTotal} حركة`} />
+        <Stat label="المسترجع" value={money.usd(refunded.cents)} sub={`${refunded.n} طلب`} />
+        <Stat label="رصيد المحفظة" value={money.usd(customer.walletBalanceCents)} sub={`${ledgerTotal} حركة`} />
       </section>
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -165,9 +169,12 @@ export default async function CustomerDetailPage({ params, searchParams }: PageP
                         )}
                       </td>
                       <td className="font-display tabular-nums">
-                        {formatPrice(o.totalCents, o.currency)}
+                        {money.own(o.totalCents, o.currency)}
+                        {money.equivalent(o.totalUsdCents, o.currency) && (
+                          <span className="block text-[11px] text-muted">≈ {money.equivalent(o.totalUsdCents, o.currency)}</span>
+                        )}
                         {o.walletAppliedCents > 0 && (
-                          <span className="block text-[11px] text-muted">منها {formatPrice(o.walletAppliedCents)} من المحفظة</span>
+                          <span className="block text-[11px] text-muted">منها {money.own(o.walletAppliedCents, o.currency)} من المحفظة</span>
                         )}
                       </td>
                       <td>
@@ -208,10 +215,10 @@ export default async function CustomerDetailPage({ params, searchParams }: PageP
                       <td className={`font-display tabular-nums ${t.amountCents > 0 ? "text-success" : "text-danger"}`} dir="ltr">
                         <span className="block text-end">
                           {t.amountCents > 0 ? "+" : "−"}
-                          {formatPrice(Math.abs(t.amountCents))}
+                          {money.usd(Math.abs(t.amountCents))}
                         </span>
                       </td>
-                      <td className="font-display tabular-nums">{formatPrice(t.balanceAfterCents)}</td>
+                      <td className="font-display tabular-nums">{money.usd(t.balanceAfterCents)}</td>
                       <td className="max-w-72 text-xs">
                         {t.note && <span className="block break-words">{t.note}</span>}
                         {t.orderId && (
@@ -261,7 +268,7 @@ export default async function CustomerDetailPage({ params, searchParams }: PageP
               تعديل رصيد المحفظة
             </h2>
             <p className="mb-4 mt-1 text-sm text-muted">
-              الرصيد الحالي: <bdi dir="ltr" className="font-display font-semibold text-text">{formatPrice(customer.walletBalanceCents)}</bdi>
+              الرصيد الحالي: <bdi dir="ltr" className="font-display font-semibold text-text">{money.usd(customer.walletBalanceCents)}</bdi>
             </p>
             {isSuper ? (
               <WalletAdjustForm
@@ -269,6 +276,7 @@ export default async function CustomerDetailPage({ params, searchParams }: PageP
                 customerId={customer.id}
                 email={customer.email}
                 balanceCents={customer.walletBalanceCents}
+                fx={money.fx}
               />
             ) : (
               <p className="rounded-lg bg-surface-2 px-3 py-2 text-xs leading-relaxed text-muted">

@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { formatDate, formatPrice } from "@/lib/format";
+import { formatDate } from "@/lib/format";
+import { getAdminMoney } from "../../_lib/money";
 import { SearchIcon } from "@/components/admin/icons";
 import { Pagination, firstParam, pageParam } from "@/components/admin/Pagination";
 import { DataTable, EmptyState, PageHeader } from "@/components/admin/ui";
@@ -46,11 +47,13 @@ export default async function CustomersPage({ searchParams }: PageProps<"/admin/
     ? await prisma.order.groupBy({
         by: ["customerId"],
         where: { customerId: { in: customers.map((c) => c.id) }, status: { in: SPENT_STATUSES } },
-        _sum: { totalCents: true },
+        _sum: { totalUsdCents: true },
         _count: { _all: true },
       })
     : [];
-  const spent = new Map(spentRows.map((r) => [r.customerId, { cents: r._sum.totalCents ?? 0, orders: r._count._all }]));
+  // USD values (orders may be in different currencies), shown in the admin currency
+  const spent = new Map(spentRows.map((r) => [r.customerId, { cents: r._sum.totalUsdCents ?? 0, orders: r._count._all }]));
+  const money = await getAdminMoney();
 
   return (
     <>
@@ -115,9 +118,9 @@ export default async function CustomersPage({ searchParams }: PageProps<"/admin/
                       {c._count.orders}
                       {s && s.orders !== c._count.orders && <span className="ms-1 text-xs text-muted">({s.orders} مدفوع)</span>}
                     </td>
-                    <td className="font-display tabular-nums">{formatPrice(s?.cents ?? 0)}</td>
+                    <td className="font-display tabular-nums">{money.usd(s?.cents ?? 0)}</td>
                     <td className={`font-display tabular-nums ${c.walletBalanceCents > 0 ? "text-volt" : "text-muted"}`}>
-                      {formatPrice(c.walletBalanceCents)}
+                      {money.usd(c.walletBalanceCents)}
                     </td>
                     <td className="whitespace-nowrap text-xs text-muted">{formatDate(c.createdAt)}</td>
                   </tr>

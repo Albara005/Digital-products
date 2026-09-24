@@ -13,6 +13,8 @@ import { RevealPayload } from "@/components/admin/RevealPayload";
 import { CheckIcon, ExternalIcon, RefreshIcon } from "@/components/admin/icons";
 import { Callout, OrderStatusBadge, PageHeader, ProductTypeBadge, shortId } from "@/components/admin/ui";
 import { requireAdminAccess } from "../../../_lib/guard";
+import { getAdminMoney } from "../../../_lib/money";
+import { toUsdCents } from "@/lib/display-currency";
 import { revealInventoryItem } from "../../products/[id]/inventory/actions";
 import { deliverItemManually, refundOrder, retryAutoDelivery, revealDeliveryNote } from "./actions";
 
@@ -50,6 +52,9 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
       walletAppliedCents: true,
       totalCents: true,
       currency: true,
+      fxRate: true,
+      totalUsdCents: true,
+      walletDebitUsdCents: true,
       paymentProvider: true,
       coupon: { select: { code: true } },
       stripeSessionId: true,
@@ -93,7 +98,14 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
   // wallet-paid part back to the wallet; WALLET credits the whole order value to the wallet.
   const provider: PaymentProvider =
     order.paymentProvider ?? (order.tapChargeId ? "TAP" : order.stripeSessionId || order.stripePaymentIntent ? "STRIPE" : "DEV");
+  // Amounts in the order's own charged currency (refunds too); the admin currency only as a hint
   const money = (cents: number) => formatPrice(cents, order.currency);
+  const adminMoney = await getAdminMoney();
+  const equivalent = adminMoney.equivalent(order.totalUsdCents, order.currency);
+  const isUsd = order.currency === "USD";
+  const usd = (cents: number) => formatPrice(cents, "USD");
+  // The wallet is USD: refunds to it credit the USD value at the order's own rate
+  const gatewayUsdCents = isUsd ? 0 : toUsdCents(Math.max(0, order.totalCents - order.walletAppliedCents), order.currency, order.fxRate, "round");
   const gatewayCents = provider === "WALLET" ? 0 : Math.max(0, order.totalCents - order.walletAppliedCents);
   const refundOptions: RefundOption[] = [
     {
@@ -105,7 +117,9 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
           ? "طلب وضع التطوير: لا توجد عملية دفع فعلية لإرجاعها."
           : [
               gatewayCents > 0 ? `${money(gatewayCents)} عبر ${providerLabel[provider]}` : null,
-              order.walletAppliedCents > 0 ? `${money(order.walletAppliedCents)} إلى المحفظة (دُفع منها)` : null,
+              order.walletAppliedCents > 0
+                ? `${money(order.walletAppliedCents)} إلى المحفظة (دُفع منها)${isUsd ? "" : ` = ${usd(order.walletDebitUsdCents)}`}`
+                : null,
             ]
               .filter(Boolean)
               .join(" + "),
@@ -114,7 +128,9 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
       method: "WALLET",
       title: "إضافة المبلغ لرصيد محفظة العميل",
       amount: money(order.totalCents),
-      note: "رصيد يستخدمه العميل في مشترياته القادمة، دون المرور ببوابة الدفع.",
+      note: isUsd
+        ? "رصيد يستخدمه العميل في مشترياته القادمة، دون المرور ببوابة الدفع."
+        : `رصيد يستخدمه العميل في مشترياته القادمة: يُضاف ${usd(gatewayUsdCents + order.walletDebitUsdCents)} للمحفظة (بالدولار، بسعر صرف الطلب).`,
     },
   ];
 
@@ -308,7 +324,15 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
               )}
               <Row label="الإجمالي">
                 <span className="font-display text-base font-bold">{money(order.totalCents)}</span>
+                {equivalent && <span className="block text-[11px] text-muted">≈ {equivalent}</span>}
               </Row>
+              {!isUsd && (
+                <Row label="سعر الصرف">
+                  <span className="font-display text-xs" dir="ltr">
+                    1 USD = {order.fxRate} {order.currency} · {usd(order.totalUsdCents)}
+                  </span>
+                </Row>
+              )}
               {order.walletAppliedCents > 0 && (
                 <Row label="مدفوع من المحفظة">
                   <span className="font-display">{money(order.walletAppliedCents)}</span>

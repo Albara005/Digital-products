@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { formatCompactPlain, formatPlain } from "@/lib/display-currency";
 
 export type RevenuePoint = {
   key: string; // YYYY-MM-DD
   dayLabel: string; // short axis label
   fullLabel: string; // tooltip / table label
+  /** Minor units of the chart currency (the admin currency). */
   cents: number;
   orders: number;
   isToday: boolean;
@@ -17,22 +19,6 @@ const BAR = "bg-[#7f9c1d]";
 const BAR_TODAY = "bg-volt";
 const PLOT_H = 176;
 
-// Deterministic formatting (no Intl in this Client Component): server and browser ICU builds
-// disagree on compact notation, which would cause hydration mismatches.
-function usd(cents: number) {
-  const [whole, frac] = (Math.abs(cents) / 100).toFixed(2).split(".");
-  return `${cents < 0 ? "-" : ""}$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${frac}`;
-}
-
-function usdCompact(cents: number) {
-  const d = cents / 100;
-  const abs = Math.abs(d);
-  const short = (n: number) => String(Number(n.toFixed(Math.abs(n) < 10 ? 2 : 1)));
-  if (abs >= 1_000_000) return `$${short(d / 1_000_000)}M`;
-  if (abs >= 1_000) return `$${short(d / 1_000)}K`;
-  return `$${short(d)}`;
-}
-
 function niceScale(maxCents: number) {
   if (maxCents <= 0) return { top: 10000, step: 2500 };
   const raw = maxCents / 4;
@@ -42,7 +28,9 @@ function niceScale(maxCents: number) {
   return { top: Math.ceil(maxCents / step) * step, step };
 }
 
-export function RevenueChart({ points }: { points: RevenuePoint[] }) {
+export function RevenueChart({ points, currency = "USD" }: { points: RevenuePoint[]; currency?: string }) {
+  const usd = (minor: number) => formatPlain(minor, currency);
+  const usdCompact = (minor: number) => formatCompactPlain(minor, currency);
   const [active, setActive] = useState<number | null>(null);
   const max = Math.max(0, ...points.map((p) => p.cents));
   const { top, step } = niceScale(max);

@@ -9,6 +9,8 @@ import { audit } from "@/lib/audit";
 import { slugify } from "@/lib/format";
 import type { FormState } from "../../_lib/form-state";
 import { requireAdminAccess } from "../../_lib/guard";
+import { formMoneyFx, parseMoneyInput } from "../../_lib/money";
+import type { Fx } from "@/lib/fx";
 import {
   ActionError,
   fail,
@@ -21,37 +23,52 @@ import {
   str,
 } from "../../_lib/validation";
 
-const priceSchema = z
-  .string()
-  .trim()
-  .regex(/^\d{1,6}(\.\d{1,2})?$/, "سعر غير صالح (مثال: 9.99)")
-  .transform((v) => {
-    const [whole, frac = ""] = v.split(".");
-    return Number(whole) * 100 + Number((frac + "00").slice(0, 2));
-  })
-  .refine((cents) => cents > 0, "السعر يجب أن يكون أكبر من صفر");
+/*
+ * Prices and costs are typed in the admin currency (the form's `moneyCurrency`) and stored as USD
+ * cents, round(value / rate x 100), with the server's current rate. Catalog prices stay in USD so
+ * the storefront converts them for every shopper with the same helper checkout charges with.
+ */
+const MAX_PRICE_CENTS = 100_000_000; // $1,000,000
 
-/** Optional supplier cost in dollars: "" / missing -> null (unknown), "0" is a valid zero cost. */
-const costSchema = z
-  .string()
-  .trim()
-  .optional()
-  .transform((v) => v ?? "")
-  .refine((v) => v === "" || /^\d{1,6}(\.\d{1,2})?$/.test(v), "تكلفة غير صالحة (مثال: 7.50)")
-  .transform((v) => {
-    if (v === "") return null;
-    const [whole, frac = ""] = v.split(".");
-    return Number(whole) * 100 + Number((frac + "00").slice(0, 2));
+const priceSchema = (fx: Fx) =>
+  z
+    .string()
+    .trim()
+    .transform((v, ctx) => {
+      const cents = parseMoneyInput(v, fx);
+      if (cents === null || cents > MAX_PRICE_CENTS) {
+        ctx.addIssue({ code: "custom", message: "سعر غير صالح (مثال: 9.99)" });
+        return z.NEVER;
+      }
+      return cents;
+    })
+    .refine((cents) => cents > 0, "السعر يجب أن يكون أكبر من صفر");
+
+/** Optional supplier cost: "" / missing -> null (unknown), "0" is a valid zero cost. */
+const costSchema = (fx: Fx) =>
+  z
+    .string()
+    .trim()
+    .optional()
+    .transform((v, ctx) => {
+      if (!v) return null;
+      const cents = parseMoneyInput(v, fx);
+      if (cents === null || cents > MAX_PRICE_CENTS) {
+        ctx.addIssue({ code: "custom", message: "تكلفة غير صالحة (مثال: 7.50)" });
+        return z.NEVER;
+      }
+      return cents;
+    });
+
+const variantSchema = (fx: Fx) =>
+  z.object({
+    id: idSchema.optional(),
+    label: z.string().trim().min(1, "اسم الخيار مطلوب").max(80, "الاسم طويل جداً"),
+    labelEn: z.string().trim().max(80, "الاسم الإنجليزي طويل جداً").optional().default(""),
+    price: priceSchema(fx),
+    cost: costSchema(fx),
+    sortOrder: z.coerce.number("أدخل رقماً").int("رقم صحيح").min(-10000).max(10000),
   });
-
-const variantSchema = z.object({
-  id: idSchema.optional(),
-  label: z.string().trim().min(1, "اسم الخيار مطلوب").max(80, "الاسم طويل جداً"),
-  labelEn: z.string().trim().max(80, "الاسم الإنجليزي طويل جداً").optional().default(""),
-  price: priceSchema,
-  cost: costSchema,
-  sortOrder: z.coerce.number("أدخل رقماً").int("رقم صحيح").min(-10000).max(10000),
-});
 
 const imageUrlSchema = z
   .string()
@@ -67,34 +84,35 @@ const imageUrlSchema = z
     }
   }, "أدخل رابط صورة يبدأ بـ https:// أو مساراً يبدأ بـ /");
 
-const productSchema = z
-  .object({
-    id: idSchema.optional(),
-    name: z.string().trim().min(1, "اسم المنتج مطلوب").max(120, "الاسم طويل جداً"),
-    nameEn: z.string().trim().max(120, "الاسم الإنجليزي طويل جداً"),
-    slug: z.string().trim().max(120, "الرابط طويل جداً"),
-    categoryId: z.string().trim().min(1, "اختر فئة").pipe(idSchema),
-    type: z.enum(ProductType, "اختر نوع المنتج"),
-    description: z.string().trim().max(5000, "الوصف طويل جداً"),
-    descriptionEn: z.string().trim().max(5000, "الوصف الإنجليزي طويل جداً"),
-    imageUrl: imageUrlSchema,
-    active: z.boolean(),
-    featured: z.boolean(),
-    warrantyHours: z.string().trim(),
-    variants: z.array(variantSchema).min(1, "أضف خياراً واحداً على الأقل").max(50, "عدد الخيارات كبير جداً"),
-  })
-  .transform((p, ctx) => {
-    let warrantyHours: number | null = null;
-    if (p.type === "ACCOUNT" && p.warrantyHours !== "") {
-      const n = Number(p.warrantyHours);
-      if (!Number.isInteger(n) || n < 0 || n > 8760) {
-        ctx.addIssue({ code: "custom", path: ["warrantyHours"], message: "أدخل عدد ساعات بين 0 و 8760" });
-        return z.NEVER;
+const productSchema = (fx: Fx) =>
+  z
+    .object({
+      id: idSchema.optional(),
+      name: z.string().trim().min(1, "اسم المنتج مطلوب").max(120, "الاسم طويل جداً"),
+      nameEn: z.string().trim().max(120, "الاسم الإنجليزي طويل جداً"),
+      slug: z.string().trim().max(120, "الرابط طويل جداً"),
+      categoryId: z.string().trim().min(1, "اختر فئة").pipe(idSchema),
+      type: z.enum(ProductType, "اختر نوع المنتج"),
+      description: z.string().trim().max(5000, "الوصف طويل جداً"),
+      descriptionEn: z.string().trim().max(5000, "الوصف الإنجليزي طويل جداً"),
+      imageUrl: imageUrlSchema,
+      active: z.boolean(),
+      featured: z.boolean(),
+      warrantyHours: z.string().trim(),
+      variants: z.array(variantSchema(fx)).min(1, "أضف خياراً واحداً على الأقل").max(50, "عدد الخيارات كبير جداً"),
+    })
+    .transform((p, ctx) => {
+      let warrantyHours: number | null = null;
+      if (p.type === "ACCOUNT" && p.warrantyHours !== "") {
+        const n = Number(p.warrantyHours);
+        if (!Number.isInteger(n) || n < 0 || n > 8760) {
+          ctx.addIssue({ code: "custom", path: ["warrantyHours"], message: "أدخل عدد ساعات بين 0 و 8760" });
+          return z.NEVER;
+        }
+        warrantyHours = n;
       }
-      warrantyHours = n;
-    }
-    return { ...p, warrantyHours };
-  });
+      return { ...p, warrantyHours };
+    });
 
 function parseVariants(raw: string): unknown {
   try {
@@ -119,7 +137,9 @@ type VariantChanges = {
 export async function saveProduct(_prev: FormState, formData: FormData): Promise<FormState> {
   const session = await requireAdminAccess();
 
-  const parsed = productSchema.safeParse({
+  const fx = await formMoneyFx(formData);
+  if (!fx) return fail("عملة الأسعار غير متاحة. حدّث الصفحة وحاول مجدداً.");
+  const parsed = productSchema(fx).safeParse({
     id: str(formData, "id") || undefined,
     name: str(formData, "name"),
     nameEn: str(formData, "nameEn"),

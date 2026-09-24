@@ -7,20 +7,20 @@ import { ProductForm } from "@/components/admin/ProductForm";
 import { ExternalIcon, LayersIcon, TrashIcon } from "@/components/admin/icons";
 import { Callout, PageHeader, ProductTypeBadge, btnSm } from "@/components/admin/ui";
 import { requireAdminAccess } from "../../../_lib/guard";
+import { getAdminMoney } from "../../../_lib/money";
 import { deleteProduct, saveProduct } from "../actions";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "تعديل منتج" };
-
-function centsToDollars(cents: number) {
-  return (cents / 100).toFixed(2);
-}
 
 export default async function EditProductPage({ params, searchParams }: PageProps<"/admin/products/[id]">) {
   await requireAdminAccess();
   const { id } = await params;
   const { created } = await searchParams;
 
+  // Stored USD prices are edited in the admin currency (converted at the current rate)
+  const money = await getAdminMoney();
+  const centsToDollars = money.toInput;
   const [product, categories] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
@@ -130,6 +130,7 @@ export default async function EditProductPage({ params, searchParams }: PageProp
       <ProductForm
         action={saveProduct}
         categories={categories}
+        fx={money.fx}
         product={{
           id: product.id,
           version: product.updatedAt.toISOString(),

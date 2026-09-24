@@ -13,9 +13,11 @@ import {
   reserveStock,
 } from "@/lib/fulfillment";
 import { orderPagePath, siteUrl } from "@/lib/email";
-import { CouponError, claimCoupon, normalizeCouponCode, quoteCart, walletShare, type QuoteLine } from "@/lib/pricing";
+import { CouponError, claimCoupon, normalizeCouponCode, quoteCart, walletPart, type QuoteLine } from "@/lib/pricing";
 import { REFERRAL_COOKIE, attachReferrer } from "@/lib/referrals";
-import { WALLET_CURRENCY, debitWallet, lockWallet } from "@/lib/wallet";
+import { debitWallet, lockWallet } from "@/lib/wallet";
+import { toUsdCents } from "@/lib/display-currency";
+import { type Fx, fxFor, getCurrencySettings, storefrontFx } from "@/lib/fx";
 import { getCheckoutOptions, getProvider, resolveProvider, type ProviderId } from "@/lib/payments";
 import { type Locale, localizePath } from "@/i18n/config";
 import { type Dictionary, dictionaryFor, getRequestLocale } from "@/i18n/server";
@@ -61,6 +63,8 @@ const bodySchema = (t: Dictionary) =>
       couponCode: z.string({ error: t.api.invalidCoupon }).trim().max(64, { error: t.api.invalidCoupon }).nullish(),
       useWallet: z.boolean({ error: t.api.badOrderData }).optional(),
       provider: z.enum(["STRIPE", "TAP"], { error: t.api.badProvider }).optional(),
+      // The currency the shopper sees (validated against the enabled currencies); else the cookie's
+      currency: z.string({ error: t.api.currencyUnavailable }).trim().toUpperCase().max(8, { error: t.api.currencyUnavailable }).optional(),
     },
     { error: t.api.badOrderData },
   );
@@ -112,7 +116,7 @@ type OrderRequest = {
   email: string;
   sessionCustomerId: string | null;
   lines: QuoteLine[];
-  currency: string;
+  fx: Fx;
   subtotalCents: number;
   couponCode: string | null;
   useWallet: boolean;
@@ -141,7 +145,8 @@ async function createReservedOrder(req: OrderRequest): Promise<ReservedOrder | O
             const customer = await tx.customer.upsert({ where: { email: req.email }, create: { email: req.email }, update: {}, select: { id: true } });
             customerId = customer.id;
           }
-          const walletBalance = req.useWallet && req.currency === WALLET_CURRENCY ? await lockWallet(tx, customerId) : 0;
+          // Wallet balance in USD cents (the wallet's currency), locked until commit
+          const walletBalanceUsd = req.useWallet ? await lockWallet(tx, customerId) : 0;
           // Referral link: only a buyer who never paid, isn't referred yet and isn't the referrer
           if (req.referralCode) await attachReferrer(tx, { customerId, email: req.email }, req.referralCode);
 
@@ -150,14 +155,16 @@ async function createReservedOrder(req: OrderRequest): Promise<ReservedOrder | O
             coupon = await claimCoupon(tx, {
               code: req.couponCode,
               lines: req.lines,
-              currency: req.currency,
+              fx: req.fx,
               email: req.email,
               locale: req.locale,
             });
           }
           const discountCents = coupon?.discountCents ?? 0;
+          // All amounts below are minor units of req.fx.currency, except the USD fields
           const totalCents = req.subtotalCents - discountCents;
-          const walletAppliedCents = walletShare(walletBalance, totalCents);
+          const wallet = walletPart(walletBalanceUsd, totalCents, req.fx);
+          const walletAppliedCents = wallet.appliedCents;
 
           const data: Prisma.OrderCreateInput = {
             accessToken: randomToken(),
@@ -167,7 +174,10 @@ async function createReservedOrder(req: OrderRequest): Promise<ReservedOrder | O
             discountCents,
             walletAppliedCents,
             totalCents,
-            currency: req.currency,
+            currency: req.fx.currency,
+            fxRate: req.fx.rate,
+            totalUsdCents: toUsdCents(totalCents, req.fx.currency, req.fx.rate, "round"),
+            walletDebitUsdCents: wallet.debitUsdCents,
             items: {
               create: req.lines.map((line) => ({
                 variantId: line.variantId,
@@ -196,8 +206,8 @@ async function createReservedOrder(req: OrderRequest): Promise<ReservedOrder | O
             },
           });
 
-          if (walletAppliedCents > 0) {
-            await debitWallet(tx, customerId, walletAppliedCents, {
+          if (wallet.debitUsdCents > 0) {
+            await debitWallet(tx, customerId, wallet.debitUsdCents, {
               type: "PURCHASE",
               orderId: order.id,
               note: `طلب #${order.id.slice(-8).toUpperCase()}`,
@@ -279,6 +289,17 @@ export async function POST(req: Request) {
     return jsonError(t.api.providerUnavailable, 400);
   }
 
+  // Price and charge in the shopper's currency: the explicit field (must be enabled), else the cookie
+  const currencySettings = await getCurrencySettings();
+  let fx: Fx;
+  if (body.currency) {
+    const requested = fxFor(body.currency, currencySettings);
+    if (!requested) return jsonError(t.api.currencyUnavailable, 400);
+    fx = requested;
+  } else {
+    fx = await storefrontFx(currencySettings);
+  }
+
   const rawCode = body.couponCode?.trim() || null;
   const couponCode = rawCode ? normalizeCouponCode(rawCode) : null;
   if (rawCode && !couponCode) return jsonError(t.api.invalidCoupon, 400);
@@ -291,6 +312,7 @@ export async function POST(req: Request) {
       customerId: session?.customerId ?? null,
       email,
       locale,
+      fx,
     });
     if (!quote.ok) return jsonError(quote.error, 400);
     // Never charge more than the buyer was shown: an unusable coupon stops the checkout
@@ -323,7 +345,7 @@ export async function POST(req: Request) {
         email,
         sessionCustomerId: session?.customerId ?? null,
         lines: quote.lines,
-        currency: quote.currency,
+        fx,
         subtotalCents: quote.subtotalCents,
         couponCode,
         useWallet,

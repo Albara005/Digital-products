@@ -1,20 +1,34 @@
 import { getDictionary } from "@/i18n/server";
-import { formatPrice } from "@/lib/format";
+import { getShopperMoney } from "@/app/(store)/_lib/money";
+import { convertUsdCents } from "@/lib/display-currency";
+import { currencyDecimals } from "@/lib/payments/currency";
+import { intlLocale } from "@/i18n/config";
 import { IconUser } from "./icons";
 import Link from "./link";
 
 /** What the header knows about the visitor. `undefined` = unknown (pages rendered without a session). */
 export type HeaderAccount = { walletBalanceCents: number; currency: string } | null | undefined;
 
-/** Header pill: full cents below $1,000, compact above ("$1.3K") so it never crowds the bar. */
-function pillAmount(cents: number, currency: string) {
-  if (Math.abs(cents) < 100_000) return formatPrice(cents, currency);
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(cents / 100);
+/**
+ * The wallet (USD cents) in the shopper's currency for the header pill: in full below 1,000 units,
+ * compact above ("$1.3K") so it never crowds the bar.
+ */
+async function walletAmounts(usdCents: number) {
+  const money = await getShopperMoney();
+  const { currency, rate } = money.fx;
+  const minor = convertUsdCents(usdCents, currency, rate);
+  const full = money.fixed(minor, currency);
+  const major = minor / 10 ** currencyDecimals(currency);
+  const pill =
+    Math.abs(major) < 1000
+      ? full
+      : new Intl.NumberFormat(currency === "USD" ? "en-US" : intlLocale(money.locale), {
+          style: "currency",
+          currency,
+          notation: "compact",
+          maximumFractionDigits: 1,
+        }).format(major);
+  return { full, pill };
 }
 
 const base =
@@ -39,7 +53,7 @@ export async function AccountButton({ account }: { account: HeaderAccount }) {
     );
   }
 
-  const balance = formatPrice(account.walletBalanceCents, account.currency);
+  const { full: balance, pill } = await walletAmounts(account.walletBalanceCents);
   return (
     <Link
       href="/account"
@@ -53,7 +67,7 @@ export async function AccountButton({ account }: { account: HeaderAccount }) {
         aria-hidden="true"
         className="hidden rounded-md bg-volt/10 px-1.5 py-0.5 font-display text-xs font-bold text-volt tabular-nums ring-1 ring-volt/25 ring-inset min-[390px]:inline"
       >
-        {pillAmount(account.walletBalanceCents, account.currency)}
+        {pill}
       </span>
       {/* Very narrow screens: a dot marks the signed-in state instead of the balance pill. */}
       <span

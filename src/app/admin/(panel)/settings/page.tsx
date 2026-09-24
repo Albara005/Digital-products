@@ -5,12 +5,12 @@ import { CurrencySettingsForm, ReferralSettingsForm, StoreSettingsForm } from "@
 import { CheckIcon } from "@/components/admin/icons";
 import { PageHeader } from "@/components/admin/ui";
 import { requireAdminAccess } from "../../_lib/guard";
+import { getAdminMoney } from "../../_lib/money";
 import { saveCurrencySettings, saveReferralSettings, saveStoreSettings } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "الإعدادات" };
 
-const dollars = (cents: number) => (cents / 100).toFixed(2).replace(/\.00$/, "");
 const has = (name: string) => Boolean(process.env[name]?.trim());
 
 type Integration = { name: string; on: boolean; description: string; warning?: string };
@@ -54,7 +54,9 @@ function Section({ id, title, description, children }: { id: string; title: stri
 
 export default async function SettingsPage() {
   await requireAdminAccess("SUPER_ADMIN");
-  const settings = await getSettings();
+  const [settings, money] = await Promise.all([getSettings(), getAdminMoney()]);
+  // Referral amounts are stored in USD cents and edited in the admin currency
+  const dollars = money.toInput;
   const { referral, store, currencies } = settings;
   const list = integrations();
   const gatewayOn = list.slice(0, 2).some((i) => i.on);
@@ -77,6 +79,7 @@ export default async function SettingsPage() {
           >
             <ReferralSettingsForm
               action={saveReferralSettings}
+              fx={money.fx}
               values={{
                 enabled: referral.enabled,
                 rewardType: referral.rewardType,
@@ -93,8 +96,8 @@ export default async function SettingsPage() {
 
           <Section
             id="currencies-title"
-            title="عملات العرض"
-            description="يختار العميل عملته من رأس المتجر ليرى سعراً تقريبياً محوّلاً من الدولار. أسعار الصرف هنا للعرض فقط."
+            title="العملات"
+            description="تُحدَّد عملة العميل تلقائياً حسب بلده ويمكنه تغييرها من رأس المتجر. تُستخدم أسعار الصرف هنا للأسعار المعروضة وللمبالغ المدفوعة فعلياً."
           >
             <CurrencySettingsForm action={saveCurrencySettings} enabled={currencies.enabled} rates={currencies.rates} />
           </Section>

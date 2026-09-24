@@ -8,22 +8,33 @@ import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/audit";
 import type { FormState } from "../../_lib/form-state";
 import { requireAdminAccess } from "../../_lib/guard";
+import { formMoneyFx, parseMoneyInput } from "../../_lib/money";
+import type { Fx } from "@/lib/fx";
 import { ActionError, fail, fromActionError, fromZod, idSchema, isNotFound, isUniqueViolation, ok, str } from "../../_lib/validation";
 
-const DOLLARS = /^\d{1,6}(\.\d{1,2})?$/;
 const LOCAL_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
 
-function dollarsToCents(v: string): number {
-  const [whole, frac = ""] = v.split(".");
-  return Number(whole) * 100 + Number((frac + "00").slice(0, 2));
-}
+/** Amounts are typed in the admin currency and stored as USD cents (server-side rate). */
+const MAX_COUPON_CENTS = 100_000_000;
+const toUsd = (fx: Fx, v: string) => {
+  const cents = parseMoneyInput(v, fx);
+  return cents !== null && cents <= MAX_COUPON_CENTS ? cents : null;
+};
 
-/** "" -> null, "12.5" -> 1250 */
-const optionalMoney = z
-  .string()
-  .trim()
-  .refine((v) => v === "" || DOLLARS.test(v), "مبلغ غير صالح (مثال: 5 أو 4.99)")
-  .transform((v) => (v === "" ? null : dollarsToCents(v)));
+/** "" -> null, "12.5" (USD) -> 1250 */
+const optionalMoney = (fx: Fx) =>
+  z
+    .string()
+    .trim()
+    .transform((v, ctx) => {
+      if (v === "") return null;
+      const cents = toUsd(fx, v);
+      if (cents === null) {
+        ctx.addIssue({ code: "custom", message: "مبلغ غير صالح (مثال: 5 أو 4.99)" });
+        return z.NEVER;
+      }
+      return cents;
+    });
 
 function optionalCount(max: number) {
   return z
@@ -41,76 +52,77 @@ const optionalDate = z
   .refine((v) => v === "" || (LOCAL_DATETIME.test(v) && !Number.isNaN(new Date(v).getTime())), "تاريخ غير صالح")
   .transform((v) => (v === "" ? null : new Date(v)));
 
-const couponSchema = z
-  .object({
-    id: idSchema.optional(),
-    code: z
-      .string()
-      .trim()
-      .toUpperCase()
-      .regex(/^[A-Z0-9_-]{3,32}$/, "الكود من 3 إلى 32 خانة: حروف إنجليزية أو أرقام أو - أو _"),
-    type: z.enum(CouponType, "اختر نوع الخصم"),
-    value: z.string().trim(),
-    maxDiscount: optionalMoney,
-    minSubtotal: optionalMoney,
-    maxUses: optionalCount(1_000_000),
-    perCustomerLimit: optionalCount(1_000),
-    startsAt: optionalDate,
-    endsAt: optionalDate,
-    scope: z.enum(["all", "category", "product"], "اختر نطاق الكوبون"),
-    categoryId: z.string().trim(),
-    productId: z.string().trim(),
-    active: z.boolean(),
-  })
-  .transform((c, ctx) => {
-    let value = 0;
-    if (c.type === "PERCENT") {
-      value = /^\d{1,3}$/.test(c.value) ? Number(c.value) : NaN;
-      if (!(value >= 1 && value <= 100)) {
-        ctx.addIssue({ code: "custom", path: ["value"], message: "النسبة رقم صحيح من 1 إلى 100" });
+const couponSchema = (fx: Fx) =>
+  z
+    .object({
+      id: idSchema.optional(),
+      code: z
+        .string()
+        .trim()
+        .toUpperCase()
+        .regex(/^[A-Z0-9_-]{3,32}$/, "الكود من 3 إلى 32 خانة: حروف إنجليزية أو أرقام أو - أو _"),
+      type: z.enum(CouponType, "اختر نوع الخصم"),
+      value: z.string().trim(),
+      maxDiscount: optionalMoney(fx),
+      minSubtotal: optionalMoney(fx),
+      maxUses: optionalCount(1_000_000),
+      perCustomerLimit: optionalCount(1_000),
+      startsAt: optionalDate,
+      endsAt: optionalDate,
+      scope: z.enum(["all", "category", "product"], "اختر نطاق الكوبون"),
+      categoryId: z.string().trim(),
+      productId: z.string().trim(),
+      active: z.boolean(),
+    })
+    .transform((c, ctx) => {
+      let value = 0;
+      if (c.type === "PERCENT") {
+        value = /^\d{1,3}$/.test(c.value) ? Number(c.value) : NaN;
+        if (!(value >= 1 && value <= 100)) {
+          ctx.addIssue({ code: "custom", path: ["value"], message: "النسبة رقم صحيح من 1 إلى 100" });
+        }
+      } else {
+        value = toUsd(fx, c.value) ?? NaN;
+        if (!(value > 0)) ctx.addIssue({ code: "custom", path: ["value"], message: "أدخل مبلغ خصم أكبر من صفر (مثال: 5 أو 4.99)" });
       }
-    } else {
-      value = DOLLARS.test(c.value) ? dollarsToCents(c.value) : NaN;
-      if (!(value > 0)) ctx.addIssue({ code: "custom", path: ["value"], message: "أدخل مبلغ خصم أكبر من صفر (مثال: 5 أو 4.99)" });
-    }
 
-    let categoryId: string | null = null;
-    let productId: string | null = null;
-    if (c.scope === "category") {
-      if (!idSchema.safeParse(c.categoryId).success) ctx.addIssue({ code: "custom", path: ["categoryId"], message: "اختر الفئة" });
-      categoryId = c.categoryId;
-    } else if (c.scope === "product") {
-      if (!idSchema.safeParse(c.productId).success) ctx.addIssue({ code: "custom", path: ["productId"], message: "اختر المنتج" });
-      productId = c.productId;
-    }
+      let categoryId: string | null = null;
+      let productId: string | null = null;
+      if (c.scope === "category") {
+        if (!idSchema.safeParse(c.categoryId).success) ctx.addIssue({ code: "custom", path: ["categoryId"], message: "اختر الفئة" });
+        categoryId = c.categoryId;
+      } else if (c.scope === "product") {
+        if (!idSchema.safeParse(c.productId).success) ctx.addIssue({ code: "custom", path: ["productId"], message: "اختر المنتج" });
+        productId = c.productId;
+      }
 
-    if (c.startsAt && c.endsAt && c.endsAt <= c.startsAt) {
-      ctx.addIssue({ code: "custom", path: ["endsAt"], message: "تاريخ الانتهاء يجب أن يكون بعد تاريخ البداية" });
-    }
-    if (c.type === "PERCENT" && c.maxDiscount === 0) {
-      ctx.addIssue({ code: "custom", path: ["maxDiscount"], message: "الحد الأقصى يجب أن يكون أكبر من صفر أو فارغاً" });
-    }
+      if (c.startsAt && c.endsAt && c.endsAt <= c.startsAt) {
+        ctx.addIssue({ code: "custom", path: ["endsAt"], message: "تاريخ الانتهاء يجب أن يكون بعد تاريخ البداية" });
+      }
+      if (c.type === "PERCENT" && c.maxDiscount === 0) {
+        ctx.addIssue({ code: "custom", path: ["maxDiscount"], message: "الحد الأقصى يجب أن يكون أكبر من صفر أو فارغاً" });
+      }
 
-    return {
-      id: c.id,
-      data: {
-        code: c.code,
-        type: c.type,
-        value,
-        maxDiscountCents: c.type === "PERCENT" ? c.maxDiscount : null,
-        minSubtotalCents: c.minSubtotal,
-        maxUses: c.maxUses,
-        perCustomerLimit: c.perCustomerLimit,
-        startsAt: c.startsAt,
-        endsAt: c.endsAt,
-        categoryId,
-        productId,
-        active: c.active,
-      } satisfies Prisma.CouponUncheckedCreateInput,
-    };
-  });
+      return {
+        id: c.id,
+        data: {
+          code: c.code,
+          type: c.type,
+          value,
+          maxDiscountCents: c.type === "PERCENT" ? c.maxDiscount : null,
+          minSubtotalCents: c.minSubtotal,
+          maxUses: c.maxUses,
+          perCustomerLimit: c.perCustomerLimit,
+          startsAt: c.startsAt,
+          endsAt: c.endsAt,
+          categoryId,
+          productId,
+          active: c.active,
+        } satisfies Prisma.CouponUncheckedCreateInput,
+      };
+    });
 
-function auditDetails(data: z.infer<typeof couponSchema>["data"]): Prisma.InputJsonValue {
+function auditDetails(data: z.infer<ReturnType<typeof couponSchema>>["data"]): Prisma.InputJsonValue {
   return {
     code: data.code,
     type: data.type,
@@ -129,7 +141,9 @@ function auditDetails(data: z.infer<typeof couponSchema>["data"]): Prisma.InputJ
 
 export async function saveCoupon(_prev: FormState, formData: FormData): Promise<FormState> {
   const admin = await requireAdminAccess();
-  const parsed = couponSchema.safeParse({
+  const fx = await formMoneyFx(formData);
+  if (!fx) return fail("عملة المبالغ غير متاحة. حدّث الصفحة وحاول مجدداً.");
+  const parsed = couponSchema(fx).safeParse({
     id: str(formData, "id") || undefined,
     code: str(formData, "code"),
     type: str(formData, "type"),

@@ -6,7 +6,6 @@ import { decrypt } from "@/lib/crypto";
 import { formatPrice } from "@/lib/format";
 import { AutoRefresh } from "@/components/store/auto-refresh";
 import { CopyButton } from "@/components/store/copy-button";
-import { Approx } from "@/components/store/currency";
 import { IconAlert, IconBookmark, IconCheck, IconClock, IconShieldCheck, IconSpinner } from "@/components/store/icons";
 import Link from "@/components/store/link";
 import { LocalTime } from "@/components/store/local-time";
@@ -186,9 +185,8 @@ export default async function OrderPage({ params, searchParams }: Props) {
             <dt className="text-xs text-muted">{t.order.total}</dt>
             <dd className="mt-1">
               <span dir="ltr" className="font-display text-base font-bold tabular-nums">
-                {formatPrice(order.totalCents, order.currency)}
+                {formatPrice(order.totalCents, order.currency, locale)}
               </span>
-              <Approx cents={order.totalCents} currency={order.currency} className="block" />
             </dd>
           </div>
           <div className="col-span-2 min-w-0 sm:col-span-1">
@@ -240,7 +238,7 @@ export default async function OrderPage({ params, searchParams }: Props) {
                       </span>
                       <span aria-hidden="true">·</span>
                       <span dir="ltr" className="font-display tabular-nums">
-                        {formatPrice(item.unitPriceCents * item.quantity, order.currency)}
+                        {formatPrice(item.unitPriceCents * item.quantity, order.currency, locale)}
                       </span>
                     </div>
                   </div>
@@ -348,7 +346,7 @@ export default async function OrderPage({ params, searchParams }: Props) {
             <div className="flex items-center justify-between gap-3">
               <dt className="text-muted">{t.order.subtotal}</dt>
               <dd dir="ltr" className="font-display font-semibold tabular-nums">
-                {formatPrice(subtotal, order.currency)}
+                {formatPrice(subtotal, order.currency, locale)}
               </dd>
             </div>
             {order.discountCents > 0 ? (
@@ -366,7 +364,7 @@ export default async function OrderPage({ params, searchParams }: Props) {
                 </dt>
                 <dd dir="ltr" className="font-display font-semibold tabular-nums">
                   {"\u2212"}
-                  {formatPrice(order.discountCents, order.currency)}
+                  {formatPrice(order.discountCents, order.currency, locale)}
                 </dd>
               </div>
             ) : null}
@@ -374,9 +372,8 @@ export default async function OrderPage({ params, searchParams }: Props) {
               <dt className="font-semibold">{t.order.total}</dt>
               <dd className="text-end">
                 <span dir="ltr" className="font-display font-bold tabular-nums">
-                  {formatPrice(order.totalCents, order.currency)}
+                  {formatPrice(order.totalCents, order.currency, locale)}
                 </span>
-                <Approx cents={order.totalCents} currency={order.currency} className="block" />
               </dd>
             </div>
             {order.walletAppliedCents > 0 ? (
@@ -384,19 +381,18 @@ export default async function OrderPage({ params, searchParams }: Props) {
                 <div className="flex items-center justify-between gap-3 text-volt">
                   <dt>{t.order.paidFromWallet}</dt>
                   <dd dir="ltr" className="font-display font-semibold tabular-nums">
-                    {formatPrice(order.walletAppliedCents, order.currency)}
+                    {formatPrice(order.walletAppliedCents, order.currency, locale)}
                   </dd>
                 </div>
                 <div className="flex items-center justify-between gap-3">
                   <dt className="text-muted">{t.order.paidByCard}</dt>
                   <dd dir="ltr" className="font-display font-semibold tabular-nums">
-                    {formatPrice(paidByCard, order.currency)}
+                    {formatPrice(paidByCard, order.currency, locale)}
                   </dd>
                 </div>
               </>
             ) : null}
           </dl>
-          <p className="mt-3 text-xs text-muted">{t.order.chargedInUsd}</p>
         </section>
       ) : null}
 

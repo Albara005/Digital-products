@@ -103,6 +103,7 @@ async function createReservedOrder(variant: string, quantity: number, stripeSess
         accessToken: randomToken(),
         customerId: customer.id,
         totalCents: v.priceCents * quantity,
+        totalUsdCents: v.priceCents * quantity,
         currency: v.currency,
         stripeSessionId,
         items: {

@@ -1,6 +1,5 @@
 import type { ProductCardData } from "@/app/(store)/_lib/queries";
 import { type Dictionary, getDictionary } from "@/i18n/server";
-import { Approx } from "./currency";
 import { IconArrow, IconStar } from "./icons";
 import Link from "./link";
 import { ProductMedia } from "./product-media";
@@ -57,7 +56,6 @@ function ProductCard({ product, priority = false, t }: { product: ProductCardDat
               currency={product.fromPrice.currency}
               className="text-base text-text sm:text-lg"
             />
-            <Approx cents={product.fromPrice.cents} currency={product.fromPrice.currency} className="mt-0.5" />
           </div>
           <span
             aria-hidden="true"

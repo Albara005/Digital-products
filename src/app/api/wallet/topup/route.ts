@@ -2,11 +2,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCustomerSession, type CustomerSession } from "@/lib/customer-auth";
 import { siteUrl } from "@/lib/email";
-import { WALLET_CURRENCY } from "@/lib/wallet";
+import { topupLimits, toUsdCents } from "@/lib/display-currency";
+import { formatPrice } from "@/lib/format";
+import { type Fx, fxFor, getCurrencySettings, storefrontFx } from "@/lib/fx";
 import {
-  TOPUP_MAX_CENTS,
-  TOPUP_MIN_CENTS,
-  TOPUP_STEP_CENTS,
   confirmTopupPaid,
   failTopup,
   getCheckoutOptions,
@@ -29,12 +28,9 @@ const CANCELLED_PATH = "/account?topup=cancelled";
 const bodySchema = (t: Dictionary) =>
   z.object(
     {
-      amountCents: z
-        .number({ error: t.api.topupAmountRequired })
-        .int({ error: t.api.topupAmountInvalid })
-        .min(TOPUP_MIN_CENTS, { error: t.api.topupMin(TOPUP_MIN_CENTS / 100) })
-        .max(TOPUP_MAX_CENTS, { error: t.api.topupMax(TOPUP_MAX_CENTS / 100) })
-        .multipleOf(TOPUP_STEP_CENTS, { error: t.api.topupWhole }),
+      // Minor units of `currency` (the customer's currency; USD cents for USD)
+      amountCents: z.number({ error: t.api.topupAmountRequired }).int({ error: t.api.topupAmountInvalid }),
+      currency: z.string({ error: t.api.currencyUnavailable }).trim().toUpperCase().max(8).optional(),
       provider: z.enum(["STRIPE", "TAP"], { error: t.api.badProvider }).optional(),
     },
     { error: t.api.badOrderData },
@@ -71,6 +67,23 @@ export async function POST(req: Request) {
   if (!parsed.success) return jsonError(parsed.error.issues[0]?.message ?? t.api.badOrderData, 400);
   const { amountCents } = parsed.data;
 
+  // Charged in the customer's currency (explicit field, else the cookie) at the server's current rate
+  const settings = await getCurrencySettings();
+  let fx: Fx;
+  if (parsed.data.currency) {
+    const requested = fxFor(parsed.data.currency, settings);
+    if (!requested) return jsonError(t.api.currencyUnavailable, 400);
+    fx = requested;
+  } else {
+    fx = await storefrontFx(settings);
+  }
+  const limits = topupLimits(fx.currency, fx.rate);
+  if (amountCents < limits.min) return jsonError(t.api.topupMin(formatPrice(limits.min, fx.currency, locale)), 400);
+  if (amountCents > limits.max) return jsonError(t.api.topupMax(formatPrice(limits.max, fx.currency, locale)), 400);
+  if (amountCents % limits.step !== 0) return jsonError(t.api.topupWhole, 400);
+  // The wallet is USD: credit the USD value of the amount paid, fixed now
+  const credit = { currency: fx.currency, fxRate: fx.rate, creditUsdCents: toUsdCents(amountCents, fx.currency, fx.rate, "round") };
+
   const customer = await prisma.customer.findUnique({ where: { id: session.customerId }, select: { id: true, email: true, name: true } });
   if (!customer) return jsonError(t.api.sessionExpired, 401);
 
@@ -79,7 +92,7 @@ export async function POST(req: Request) {
     if (options.devMode) {
       // Dev mode (never in production): no real charge, credit immediately
       const topup = await prisma.walletTopup.create({
-        data: { customerId: customer.id, amountCents, currency: WALLET_CURRENCY, provider: "DEV" },
+        data: { customerId: customer.id, amountCents, ...credit, provider: "DEV" },
         select: { id: true },
       });
       await confirmTopupPaid(topup.id);
@@ -93,7 +106,7 @@ export async function POST(req: Request) {
     if (!providerId) return jsonError(t.api.paymentUnavailable, 503);
 
     const topup = await prisma.walletTopup.create({
-      data: { customerId: customer.id, amountCents, currency: WALLET_CURRENCY, provider: providerId },
+      data: { customerId: customer.id, amountCents, ...credit, provider: providerId },
       select: { id: true },
     });
 
@@ -104,7 +117,7 @@ export async function POST(req: Request) {
         kind: "topup",
         refId: topup.id,
         amountMinor: amountCents,
-        currency: WALLET_CURRENCY,
+        currency: fx.currency,
         email: customer.email,
         customerName: customer.name,
         description: t.api.topupDescription,

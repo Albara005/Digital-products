@@ -8,7 +8,7 @@ import "server-only";
 
 export { getCheckoutOptions, getProvider, resolveProvider, type CheckoutOptions } from "./providers";
 export { refundOrderPayment, type RefundMethod, type RefundResult } from "./refunds";
-export { confirmTopupPaid, failTopup, TOPUP_MAX_CENTS, TOPUP_MIN_CENTS, TOPUP_STEP_CENTS } from "./topups";
+export { confirmTopupPaid, failTopup } from "./topups";
 export { processTapCharge, type TapChargeOutcome } from "./tap-events";
 export { isTapChargeId, isTapEnabled } from "./tap";
 export { currencyDecimals, majorToMinor, minorToMajor } from "./currency";

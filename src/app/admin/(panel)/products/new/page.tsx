@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { ProductForm } from "@/components/admin/ProductForm";
 import { EmptyState, PageHeader } from "@/components/admin/ui";
 import { requireAdminAccess } from "../../../_lib/guard";
+import { getAdminMoney } from "../../../_lib/money";
 import { saveProduct } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +33,7 @@ export default async function NewProductPage() {
           />
         </div>
       ) : (
-        <ProductForm action={saveProduct} categories={categories} />
+        <ProductForm action={saveProduct} categories={categories} fx={(await getAdminMoney()).fx} />
       )}
     </>
   );

@@ -1,8 +1,13 @@
 import type { OrderStatus, ProductType } from "@prisma/client";
 import { type Locale, intlLocale } from "@/i18n/config";
+import { formatMoney } from "@/lib/display-currency";
 
-export function formatPrice(cents: number, currency = "USD") {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(cents / 100);
+/**
+ * `minor` units of `currency` (USD cents, KWD fils, ...) with that currency's decimals:
+ * 1875 USD -> "$18.75", 7210 OMR -> "OMR 7.210" (or "‏7.210 ر.ع.‏" with locale "ar").
+ */
+export function formatPrice(minor: number, currency = "USD", locale: Locale = "en") {
+  return formatMoney(minor, currency, locale);
 }
 
 /** Date and time in the given locale (Latin digits in Arabic too). Defaults to Arabic (admin panel). */

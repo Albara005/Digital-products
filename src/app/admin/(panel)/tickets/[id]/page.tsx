@@ -174,7 +174,7 @@ export default async function TicketDetailPage({ params }: Props) {
                 </Row>
                 <Row label="الإجمالي">
                   <span className="font-display" dir="ltr">
-                    {formatPrice(ticket.order.totalCents, ticket.order.currency)}
+                    {formatPrice(ticket.order.totalCents, ticket.order.currency) /* the order's own charged currency */}
                   </span>
                 </Row>
                 <Row label="التاريخ">{formatDate(ticket.order.createdAt)}</Row>

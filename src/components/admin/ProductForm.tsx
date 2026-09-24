@@ -5,7 +5,9 @@ import Link from "next/link";
 import type { ProductType } from "@prisma/client";
 import { productTypeLabel, slugify } from "@/lib/format";
 import type { FormAction, FormState } from "@/app/admin/_lib/form-state";
+import { formatMoney, inputToMinor, inputToUsdCents } from "@/lib/display-currency";
 import { PlusIcon, TrashIcon } from "./icons";
+import type { AdminFx } from "./MoneyInput";
 import { FieldError, FormMessage, btnSm } from "./ui";
 import { useFormAction } from "./useFormAction";
 
@@ -13,8 +15,8 @@ export type ProductFormVariant = {
   id: string;
   label: string;
   labelEn: string;
-  price: string; // dollars, e.g. "9.99"
-  cost: string; // supplier cost in dollars, "" when unknown
+  price: string; // in the admin currency, e.g. "9.99" (stored as USD cents)
+  cost: string; // supplier cost in the admin currency, "" when unknown
   sortOrder: number;
   orders: number;
   stock: number;
@@ -39,16 +41,10 @@ export type ProductFormData = {
 
 type Row = { key: string; id?: string; label: string; labelEn: string; price: string; cost: string; sortOrder: string; orders: number; stock: number };
 
-function toCents(v: string): number | null {
-  if (!/^\d{1,6}(\.\d{1,2})?$/.test(v.trim())) return null;
-  const [whole, frac = ""] = v.trim().split(".");
-  return Number(whole) * 100 + Number((frac + "00").slice(0, 2));
-}
-
-/** Gross margin on the price, e.g. price $10, cost $7 -> 30%. Null when either is missing. */
-function marginPct(price: string, cost: string): number | null {
-  const p = toCents(price);
-  const c = cost.trim() === "" ? null : toCents(cost);
+/** Gross margin on the price, e.g. price 10, cost 7 -> 30% (same currency). Null when either is missing. */
+function marginPct(price: string, cost: string, currency: string): number | null {
+  const p = inputToMinor(price, currency);
+  const c = cost.trim() === "" ? null : inputToMinor(cost, currency);
   if (!p || c === null) return null;
   return Math.round(((p - c) / p) * 1000) / 10;
 }
@@ -65,17 +61,21 @@ export function ProductForm({
   action,
   categories,
   product,
+  fx,
 }: {
   action: FormAction;
   categories: { id: string; name: string }[];
   product?: ProductFormData;
+  /** Admin currency prices are typed in (stored as USD cents) */
+  fx: AdminFx;
 }) {
   const [state, form, pending] = useFormAction(action);
 
   return (
     <form {...form} noValidate>
       {product && <input type="hidden" name="id" value={product.id} />}
-      <ProductFields key={product?.version ?? "new"} product={product} categories={categories} state={state} />
+      <input type="hidden" name="moneyCurrency" value={fx.currency} />
+      <ProductFields key={`${product?.version ?? "new"}-${fx.currency}`} product={product} categories={categories} state={state} fx={fx} />
       <div className="sticky bottom-0 z-10 -mx-4 mt-6 flex flex-col gap-3 border-t border-border bg-bg/90 px-4 py-4 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
         <FormMessage state={state} />
         <div className="flex flex-wrap items-center gap-2">
@@ -95,11 +95,23 @@ function ProductFields({
   product,
   categories,
   state,
+  fx,
 }: {
   product?: ProductFormData;
   categories: { id: string; name: string }[];
   state: FormState;
+  fx: AdminFx;
 }) {
+  /** "= $9.99" under a price typed in another currency: the USD value that is stored. */
+  const usdHint = (value: string) => {
+    if (fx.currency === "USD" || !value.trim()) return null;
+    const usd = inputToUsdCents(value, fx.currency, fx.rate);
+    return usd === null ? null : (
+      <span className="mt-0.5 block text-[10px] text-muted" dir="ltr">
+        = {formatMoney(usd, "USD")} USD
+      </span>
+    );
+  };
   const [name, setName] = useState(product?.name ?? "");
   const [slug, setSlug] = useState(product?.slug ?? "");
   const [slugTouched, setSlugTouched] = useState(Boolean(product));
@@ -247,7 +259,7 @@ function ProductFields({
                 الخيارات والأسعار
               </h2>
               <p className="text-xs text-muted">
-                مثل: بطاقة 10$، اشتراك شهر، حساب عادي. السعر بالدولار. التكلفة (اختيارية) هي ما تدفعه للمورّد، وتُستخدم في تقارير
+                مثل: بطاقة 10$، اشتراك شهر، حساب عادي. السعر بعملة العرض ({fx.currency}) ويُخزَّن بالدولار ويُحوَّل لعملة كل عميل. التكلفة (اختيارية) هي ما تدفعه للمورّد، وتُستخدم في تقارير
                 الربح ولا تظهر للعملاء.
               </p>
             </div>
@@ -260,14 +272,14 @@ function ProductFields({
 
           <div className="hidden grid-cols-[minmax(0,1fr)_110px_110px_72px_36px] gap-2 px-1 pb-1.5 text-xs text-muted sm:grid">
             <span>الاسم</span>
-            <span>السعر (USD)</span>
-            <span>التكلفة (USD)</span>
+            <span>السعر ({fx.currency})</span>
+            <span>التكلفة ({fx.currency})</span>
             <span>الترتيب</span>
             <span />
           </div>
           <ul className="flex flex-col gap-3 sm:gap-2">
             {rows.map((r, i) => {
-              const margin = marginPct(r.price, r.cost);
+              const margin = marginPct(r.price, r.cost, fx.currency);
               const rowError =
                 err(`variants.${i}.label`) ?? err(`variants.${i}.labelEn`) ?? err(`variants.${i}.price`) ?? err(`variants.${i}.cost`) ?? err(`variants.${i}.sortOrder`);
               const locked = r.orders > 0 || r.stock > 0;
@@ -299,29 +311,35 @@ function ProductFields({
                       <TrashIcon className="size-4" />
                     </button>
                     <div className="relative">
-                      <span className="pointer-events-none absolute inset-y-0 left-3 grid place-items-center text-sm text-muted">$</span>
+                      <span className="pointer-events-none absolute top-0 left-2 grid h-[42px] place-items-center font-display text-[10px] text-muted">
+                        {fx.currency}
+                      </span>
                       <input
-                        aria-label={`سعر الخيار ${i + 1} بالدولار`}
-                        className="input pl-7! text-left font-display"
+                        aria-label={`سعر الخيار ${i + 1} (${fx.currency})`}
+                        className="input pl-10! text-left font-display"
                         dir="ltr"
                         inputMode="decimal"
                         placeholder="9.99"
                         value={r.price}
                         onChange={(e) => update(r.key, { price: e.target.value.replace(/[^\d.]/g, "") })}
                       />
+                      {usdHint(r.price)}
                     </div>
                     <div className="relative">
-                      <span className="pointer-events-none absolute inset-y-0 left-3 grid place-items-center text-sm text-muted">$</span>
+                      <span className="pointer-events-none absolute top-0 left-2 grid h-[42px] place-items-center font-display text-[10px] text-muted">
+                        {fx.currency}
+                      </span>
                       <input
-                        aria-label={`تكلفة الخيار ${i + 1} بالدولار (اختياري)`}
+                        aria-label={`تكلفة الخيار ${i + 1} (${fx.currency}، اختياري)`}
                         title="التكلفة"
-                        className="input pl-7! text-left font-display"
+                        className="input pl-10! text-left font-display"
                         dir="ltr"
                         inputMode="decimal"
                         placeholder="التكلفة"
                         value={r.cost}
                         onChange={(e) => update(r.key, { cost: e.target.value.replace(/[^\d.]/g, "") })}
                       />
+                      {usdHint(r.cost)}
                     </div>
                     <input
                       aria-label={`ترتيب الخيار ${i + 1}`}

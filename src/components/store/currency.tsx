@@ -1,7 +1,8 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { useLocale, useT } from "@/i18n/client";
+import { useRouter } from "next/navigation";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useLocale } from "@/i18n/client";
 import {
   BASE_CURRENCY,
   CURRENCY_COOKIE,
@@ -10,16 +11,18 @@ import {
   type CurrencyOption,
   type CurrencySource,
   type DisplayCurrency,
+  convertUsdCents,
   currencyForTimeZone,
-  formatConverted,
+  formatMoney,
 } from "@/lib/display-currency";
 
-// The visitor's display currency. The server reads the cookie for the first render (so the HTML
-// already shows the right approximations); switching updates the context immediately and the
-// cookie for later visits. Only USD prices are converted, and only for display.
+// The visitor's store currency. The server reads the cookie for the first render (so the HTML
+// already shows local prices); switching updates the context immediately, the cookie (which
+// checkout reads) and refreshes server-rendered parts. Catalog prices are USD cents and are
+// converted with convertUsdCents(), the same helper checkout charges with.
 
 type CurrencyContextValue = {
-  /** null = USD (no conversion shown). */
+  /** null = USD. */
   selected: CurrencyOption | null;
   options: CurrencyOption[];
   /** true while the currency follows the visitor's country (not picked by hand). */
@@ -72,6 +75,15 @@ export function CurrencyProvider({
 }) {
   const [code, setCode] = useState(initial);
   const [auto, setAuto] = useState(!manual);
+  const router = useRouter();
+  const rendered = useRef(initial);
+
+  // Server-rendered amounts (account, order pages) follow the cookie: re-render them on a change.
+  useEffect(() => {
+    if (rendered.current === code) return;
+    rendered.current = code;
+    router.refresh();
+  }, [code, router]);
 
   // Unless the visitor picked a currency by hand, follow their country (browser time zone).
   useEffect(() => {
@@ -109,23 +121,52 @@ export function useDisplayCurrency() {
   return useContext(CurrencyContext);
 }
 
-/** Formatter for the approximate converted amount, or null when nothing should be shown. */
-export function useApprox(): (cents: number, currency?: string) => string | null {
+export type Money = {
+  /** "USD" or the selected currency. */
+  currency: string;
+  /** Units of `currency` per USD (1 for USD). */
+  rate: number;
+  /** USD cents -> minor units of the selected currency (exactly what checkout charges). */
+  convert: (usdCents: number) => number;
+  /** Minor units of `currency` (default: the selected one) as text. */
+  format: (minor: number, currency?: string) => string;
+  /** USD cents shown in the selected currency. */
+  formatUsd: (usdCents: number) => string;
+};
+
+/** The selected currency with its converter and formatter. */
+export function useMoney(): Money {
   const { selected } = useContext(CurrencyContext);
   const locale = useLocale();
-  return (cents, currency = BASE_CURRENCY) =>
-    selected && currency.toUpperCase() === BASE_CURRENCY ? `≈ ${formatConverted(cents, selected, locale)}` : null;
+  return useMemo(() => {
+    const currency = selected?.code ?? BASE_CURRENCY;
+    const rate = selected?.rate ?? 1;
+    const convert = (usdCents: number) => convertUsdCents(usdCents, currency, rate);
+    const format = (minor: number, code: string = currency) => formatMoney(minor, code, locale);
+    return { currency, rate, convert, format, formatUsd: (usdCents: number) => format(convert(usdCents)) };
+  }, [selected, locale]);
 }
 
-/** "≈ 18.75 ر.س." next to a USD price; renders nothing when the visitor shows prices in USD. */
-export function Approx({ cents, currency = BASE_CURRENCY, className = "" }: { cents: number; currency?: string; className?: string }) {
-  const approx = useApprox();
-  const t = useT();
-  const text = approx(cents, currency);
-  if (!text) return null;
+/**
+ * A catalog amount (USD cents) shown in the visitor's currency; Latin digits, LTR run isolated from
+ * the surrounding Arabic text. A non-USD `currency` is shown as is.
+ */
+export function Price({ cents, currency = BASE_CURRENCY, className = "" }: { cents: number; currency?: string; className?: string }) {
+  const money = useMoney();
+  const text = currency.toUpperCase() === BASE_CURRENCY ? money.formatUsd(cents) : money.format(cents, currency);
   return (
-    <span title={t.prefs.approxTitle} className={`font-display text-xs font-medium whitespace-nowrap text-muted tabular-nums ${className}`}>
-      <bdi>{text}</bdi>
+    <span dir="ltr" className={`font-display font-bold tabular-nums ${className}`}>
+      {text}
+    </span>
+  );
+}
+
+/** A fixed amount in a given currency (an order's own charged currency), never converted. */
+export function Money({ minor, currency, className = "" }: { minor: number; currency: string; className?: string }) {
+  const locale = useLocale();
+  return (
+    <span dir="ltr" className={`font-display tabular-nums ${className}`}>
+      {formatMoney(minor, currency, locale)}
     </span>
   );
 }

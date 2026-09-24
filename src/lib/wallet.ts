@@ -11,7 +11,9 @@ import { audit, type AuditActor } from "@/lib/audit";
  * the caller's transaction, so concurrent debits serialize and the balance can never go negative:
  * the second of two racing checkouts sees the balance the first one left.
  *
- * Amounts are in minor units of WALLET_CURRENCY. Orders in another currency cannot use the wallet.
+ * Amounts are always USD cents (WALLET_CURRENCY). The customer sees the balance converted to their
+ * currency; an order in another currency debits the USD equivalent of its wallet part
+ * (Order.walletDebitUsdCents, see walletPart() in src/lib/pricing.ts) and refunds credit USD back.
  */
 
 export const WALLET_CURRENCY = "USD";

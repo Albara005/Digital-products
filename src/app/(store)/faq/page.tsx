@@ -39,7 +39,7 @@ const arGroups: FaqGroup[] = [
       },
       {
         q: "بأي عملة تُعرض الأسعار؟",
-        a: "تُعرض الأسعار بالعملة الموضّحة بجانب كل منتج، وقد يطبّق بنكك رسوم تحويل عملة بحسب سياساته.",
+        a: "تُعرض الأسعار ويتم الدفع بالعملة المختارة أعلى الصفحة (تُحدَّد تلقائياً حسب بلدك، أو بالدولار الأمريكي افتراضياً). المبلغ الظاهر عند الدفع هو المبلغ المخصوم بالضبط، وقد يطبّق بنكك رسومه الخاصة.",
       },
     ],
   },
@@ -108,7 +108,7 @@ const enGroups: FaqGroup[] = [
       },
       {
         q: "What currency are prices shown in?",
-        a: "Prices are set and charged in US dollars. If you choose another currency at the top of the page, we show an approximate converted price for reference only; your bank may apply its own currency conversion fees.",
+        a: "Prices are shown and charged in the currency selected at the top of the page (detected from your country, or US dollars by default). The amount you see at checkout is exactly the amount charged; your bank may apply its own fees.",
       },
     ],
   },

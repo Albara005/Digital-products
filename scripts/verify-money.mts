@@ -364,7 +364,7 @@ async function phaseUnit() {
   const perCustomer = await createCoupon("PER", { perCustomerLimit: 1 });
   const buyer = await createCustomer();
   const usedOrder = await prisma.order.create({
-    data: { accessToken: randomToken(), customerId: buyer.id, status: "FULFILLED", totalCents: 100, couponId: perCustomer.id, couponRedemption: { create: { couponId: perCustomer.id, customerEmail: buyer.email, discountCents: 10 } } },
+    data: { accessToken: randomToken(), customerId: buyer.id, status: "FULFILLED", totalCents: 100, totalUsdCents: 100, couponId: perCustomer.id, couponRedemption: { create: { couponId: perCustomer.id, customerEmail: buyer.email, discountCents: 10 } } },
   });
   q = await pricing.quoteCart({ items: [{ variantId: ps10, quantity: 1 }], couponCode: perCustomer.code, email: buyer.email.toUpperCase() });
   check(q.ok && !!q.couponError && q.discountCents === 0, "perCustomerLimit 1 already used by this email -> couponError", q.ok && q.couponError);
@@ -417,12 +417,12 @@ async function phaseUnit() {
     return res.status;
   };
   const topupCustomer = await createCustomer();
-  const topup = await prisma.walletTopup.create({ data: { customerId: topupCustomer.id, amountCents: 2500, provider: "STRIPE", providerRef: `cs_test_${randomToken(8)}` } });
+  const topup = await prisma.walletTopup.create({ data: { customerId: topupCustomer.id, amountCents: 2500, creditUsdCents: 2500, provider: "STRIPE", providerRef: `cs_test_${randomToken(8)}` } });
   const topupSession = { id: topup.providerRef, metadata: { kind: "topup", topupId: topup.id }, client_reference_id: topup.id, payment_status: "paid", amount_total: 2500, currency: "usd" };
   const statuses = await Promise.all([1, 2, 3].map(() => sendEvent("checkout.session.completed", topupSession)));
   check(statuses.every((s) => s === 200) && (await balanceOf(topupCustomer.id)) === 2500, "top-up paid event sent 3x concurrently -> credited 25.00 once");
   check((await prisma.walletTransaction.count({ where: { topupId: topup.id, type: "TOPUP" } })) === 1, "exactly one TOPUP ledger row");
-  const badTopup = await prisma.walletTopup.create({ data: { customerId: topupCustomer.id, amountCents: 1000, provider: "STRIPE", providerRef: `cs_test_${randomToken(8)}` } });
+  const badTopup = await prisma.walletTopup.create({ data: { customerId: topupCustomer.id, amountCents: 1000, creditUsdCents: 1000, provider: "STRIPE", providerRef: `cs_test_${randomToken(8)}` } });
   await sendEvent("checkout.session.completed", { id: badTopup.providerRef, metadata: { kind: "topup", topupId: badTopup.id }, payment_status: "paid", amount_total: 100, currency: "usd" });
   check((await prisma.walletTopup.findUniqueOrThrow({ where: { id: badTopup.id } })).status === "PENDING" && (await balanceOf(topupCustomer.id)) === 2500, "amount mismatch -> not credited");
   await sendEvent("checkout.session.expired", { id: badTopup.providerRef, metadata: { kind: "topup", topupId: badTopup.id }, payment_status: "unpaid" });
@@ -448,7 +448,9 @@ async function createPendingOrder(opts: { customerId: string; variant: string; w
         customerId: opts.customerId,
         subtotalCents: v.priceCents,
         totalCents: v.priceCents,
+        totalUsdCents: v.priceCents,
         walletAppliedCents: opts.walletCents ?? 0,
+        walletDebitUsdCents: opts.walletCents ?? 0,
         currency: v.currency,
         stripeSessionId: opts.stripeSessionId,
         items: { create: { variantId: v.id, productName: v.product.name, variantLabel: v.label, productType: v.product.type, quantity: 1, unitPriceCents: v.priceCents } },

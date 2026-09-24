@@ -11,12 +11,9 @@ function toLocalInput(date: Date | null): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function toDollars(cents: number | null): string {
-  if (cents == null) return "";
-  return cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
-}
-
-export function couponToFormData(coupon: Coupon): CouponFormData {
+/** Coupon form values; stored USD cents are shown in the admin currency via `toInput` (AdminMoney.toInput). */
+export function couponToFormData(coupon: Coupon, toInput: (usdCents: number) => string): CouponFormData {
+  const toDollars = (cents: number | null) => (cents == null ? "" : toInput(cents));
   return {
     id: coupon.id,
     code: coupon.code,

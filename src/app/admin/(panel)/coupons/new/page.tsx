@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { CouponForm } from "@/components/admin/coupons/CouponForm";
 import { PageHeader } from "@/components/admin/ui";
 import { requireAdminAccess } from "../../../_lib/guard";
+import { getAdminMoney } from "../../../_lib/money";
 import { saveCoupon } from "../actions";
 import { loadScopeOptions } from "../form-data";
 
@@ -10,7 +11,7 @@ export const metadata: Metadata = { title: "كوبون جديد" };
 
 export default async function NewCouponPage() {
   await requireAdminAccess();
-  const { categories, products } = await loadScopeOptions();
+  const [{ categories, products }, money] = await Promise.all([loadScopeOptions(), getAdminMoney()]);
 
   return (
     <>
@@ -19,7 +20,7 @@ export default async function NewCouponPage() {
         description="كود خصم يُدخله العميل في السلة: نسبة أو مبلغ ثابت، مع حدود وتواريخ اختيارية."
         back={{ href: "/admin/coupons", label: "الكوبونات" }}
       />
-      <CouponForm action={saveCoupon} categories={categories} products={products} />
+      <CouponForm action={saveCoupon} categories={categories} products={products} fx={money.fx} />
     </>
   );
 }

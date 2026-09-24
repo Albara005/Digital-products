@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { InventoryStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { formatDate, formatPrice } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { ActionButton } from "@/components/admin/ActionButton";
 import { InventoryAddForm } from "@/components/admin/InventoryAddForm";
 import { RevealPayload } from "@/components/admin/RevealPayload";
@@ -12,6 +12,7 @@ import { PencilIcon, TrashIcon } from "@/components/admin/icons";
 import { Pagination, firstParam, pageParam } from "@/components/admin/Pagination";
 import { Callout, EmptyState, PageHeader, ProductTypeBadge, btnSm } from "@/components/admin/ui";
 import { requireAdminAccess } from "../../../../_lib/guard";
+import { getAdminMoney } from "../../../../_lib/money";
 import { addInventory, deleteInventoryItem, revealInventoryItem } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ export default async function ProductInventoryPage({ params, searchParams }: Pag
   await requireAdminAccess();
   const { id } = await params;
   const sp = await searchParams;
+  const money = await getAdminMoney();
 
   const product = await prisma.product.findUnique({
     where: { id },
@@ -136,7 +138,7 @@ export default async function ProductInventoryPage({ params, searchParams }: Pag
             >
               <div className="flex items-start justify-between gap-2">
                 <bdi className="block truncate font-medium">{v.label}</bdi>
-                <span className="font-display text-xs text-muted">{formatPrice(v.priceCents, v.currency)}</span>
+                <span className="font-display text-xs text-muted">{v.currency === "USD" ? money.usd(v.priceCents) : money.own(v.priceCents, v.currency)}</span>
               </div>
               <p className="mt-3 flex items-baseline gap-1.5">
                 <span

@@ -2,11 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { PaymentProvider } from "@prisma/client";
-import { formatPrice } from "@/lib/format";
 import { DailyRevenueChart, type DailyPoint } from "@/components/admin/reports/DailyRevenueChart";
 import { DataTable, EmptyState, PageHeader } from "@/components/admin/ui";
 import { requireAdminAccess } from "../../_lib/guard";
 import { getReport } from "./queries";
+import { getAdminMoney } from "../../_lib/money";
 import { PRESETS, parseRange, presetLabel, rangeQuery } from "./range";
 
 export const dynamic = "force-dynamic";
@@ -63,12 +63,13 @@ function Bar({ value, max }: { value: number; max: number }) {
 export default async function ReportsPage({ searchParams }: PageProps<"/admin/reports">) {
   await requireAdminAccess("SUPER_ADMIN");
   const range = parseRange(await searchParams);
-  const r = await getReport(range);
+  // Report amounts are USD cents, shown in the admin currency at the current rate
+  const [r, money] = await Promise.all([getReport(range), getAdminMoney()]);
   const q = rangeQuery(range);
 
   const points: DailyPoint[] = r.days.map((d) => {
     const date = localDate(d.key);
-    return { key: d.key, axisLabel: dayShort.format(date), fullLabel: dayFull.format(date), cents: d.cents, orders: d.orders };
+    return { key: d.key, axisLabel: dayShort.format(date), fullLabel: dayFull.format(date), cents: money.minor(d.cents), orders: d.orders };
   });
   const catMax = Math.max(0, ...r.categories.map((c) => c.revenueCents));
   const provMax = Math.max(0, ...r.providers.map((p) => p.cents));
@@ -83,7 +84,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
     <>
       <PageHeader
         title="التقارير"
-        description={`${dayMedium.format(localDate(range.from))} – ${dayMedium.format(localDate(range.to))} · ${range.days} يوماً · حسب تاريخ الدفع`}
+        description={`${dayMedium.format(localDate(range.from))} – ${dayMedium.format(localDate(range.to))} · ${range.days} يوماً · حسب تاريخ الدفع · المبالغ بـ ${money.fx.currency}`}
         actions={
           <a href={`/admin/reports/export?${q}`} className="btn-ghost" download>
             تصدير الطلبات CSV
@@ -130,14 +131,14 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
       </div>
 
       <section aria-label="مؤشرات" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="المبيعات الإجمالية" value={formatPrice(r.grossCents)} sub={`${r.grossOrders} طلب مدفوع في الفترة`} />
+        <Kpi label="المبيعات الإجمالية" value={money.usd(r.grossCents)} sub={`${r.grossOrders} طلب مدفوع في الفترة`} />
         <Kpi
           label="المسترجع"
-          value={formatPrice(r.refundCents)}
+          value={money.usd(r.refundCents)}
           sub={`${r.refundOrders} طلب من طلبات الفترة استُرجع`}
           tone={r.refundCents > 0 ? "bad" : undefined}
         />
-        <Kpi label="صافي الإيراد" value={formatPrice(r.netCents)} sub="المدفوعة والمسلّمة (بعد الاسترجاع)" />
+        <Kpi label="صافي الإيراد" value={money.usd(r.netCents)} sub="المدفوعة والمسلّمة (بعد الاسترجاع)" />
         <Kpi
           label={
             <>
@@ -145,7 +146,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
               <Estimated />
             </>
           }
-          value={formatPrice(r.cogsCents)}
+          value={money.usd(r.cogsCents)}
           sub={costNote}
         />
         <Kpi
@@ -155,7 +156,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
               <Estimated />
             </>
           }
-          value={formatPrice(r.grossProfitCents)}
+          value={money.usd(r.grossProfitCents)}
           sub={`هامش ${pct(r.marginPct)} من صافي الإيراد`}
           tone={r.grossProfitCents < 0 ? "bad" : undefined}
         />
@@ -164,13 +165,13 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
           value={String(r.orders)}
           sub={
             <>
-              متوسط الطلب <bdi dir="ltr">{formatPrice(r.avgOrderCents)}</bdi>
+              متوسط الطلب <bdi dir="ltr">{money.usd(r.avgOrderCents)}</bdi>
             </>
           }
         />
         <Kpi
           label="الخصومات (كوبونات)"
-          value={formatPrice(r.discountCents)}
+          value={money.usd(r.discountCents)}
           sub={`${r.coupons.reduce((a, c) => a + c.uses, 0)} طلب بكوبون`}
         />
         <Kpi
@@ -178,7 +179,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
           value={pct(r.walletShare === null ? null : r.walletShare * 100)}
           sub={
             <>
-              <bdi dir="ltr">{formatPrice(r.walletCents)}</bdi> من صافي الإيراد · عملاء جدد: {r.newCustomers}
+              <bdi dir="ltr">{money.usd(r.walletCents)}</bdi> من صافي الإيراد · عملاء جدد: {r.newCustomers}
             </>
           }
         />
@@ -192,9 +193,9 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
             </h2>
             <p className="text-xs text-muted">الطلبات المدفوعة والمسلّمة حسب يوم الدفع</p>
           </div>
-          <p className="font-display text-lg font-bold">{formatPrice(r.netCents)}</p>
+          <p className="font-display text-lg font-bold">{money.usd(r.netCents)}</p>
         </div>
-        <DailyRevenueChart points={points} />
+        <DailyRevenueChart points={points} currency={money.fx.currency} />
       </section>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-2">
@@ -227,9 +228,9 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
                       <Bar value={c.revenueCents} max={catMax} />
                     </td>
                     <td className="font-display tabular-nums">{c.units}</td>
-                    <td className="font-display tabular-nums">{formatPrice(c.revenueCents)}</td>
+                    <td className="font-display tabular-nums">{money.usd(c.revenueCents)}</td>
                     <td className="font-display tabular-nums">
-                      {formatPrice(c.profitCents)}
+                      {money.usd(c.profitCents)}
                       {c.missingCostLines > 0 && <span className="text-fuchsia" title={`${c.missingCostLines} سطر بلا تكلفة`}>*</span>}
                     </td>
                   </tr>
@@ -266,8 +267,8 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
                       <Bar value={p.cents} max={provMax} />
                     </td>
                     <td className="font-display tabular-nums">{p.orders}</td>
-                    <td className="font-display tabular-nums">{formatPrice(p.cents)}</td>
-                    <td className="font-display tabular-nums text-muted">{formatPrice(p.walletCents)}</td>
+                    <td className="font-display tabular-nums">{money.usd(p.cents)}</td>
+                    <td className="font-display tabular-nums text-muted">{money.usd(p.walletCents)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -312,10 +313,10 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
                   </td>
                   <td className="text-muted">{p.categoryName}</td>
                   <td className="font-display tabular-nums">{p.units}</td>
-                  <td className="font-display tabular-nums">{formatPrice(p.revenueCents)}</td>
-                  <td className="font-display tabular-nums text-muted">{formatPrice(p.costCents)}</td>
+                  <td className="font-display tabular-nums">{money.usd(p.revenueCents)}</td>
+                  <td className="font-display tabular-nums text-muted">{money.usd(p.costCents)}</td>
                   <td className={`font-display tabular-nums ${p.profitCents < 0 ? "text-danger" : ""}`}>
-                    {formatPrice(p.profitCents)}
+                    {money.usd(p.profitCents)}
                     {p.missingCostLines > 0 && <span className="text-fuchsia" title={`${p.missingCostLines} سطر بلا تكلفة`}>*</span>}
                   </td>
                 </tr>
@@ -353,8 +354,8 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
                     </Link>
                   </td>
                   <td className="font-display tabular-nums">{c.uses}</td>
-                  <td className="font-display tabular-nums">{formatPrice(c.discountCents)}</td>
-                  <td className="font-display tabular-nums">{formatPrice(c.revenueCents)}</td>
+                  <td className="font-display tabular-nums">{money.usd(c.discountCents)}</td>
+                  <td className="font-display tabular-nums">{money.usd(c.revenueCents)}</td>
                 </tr>
               ))}
             </tbody>

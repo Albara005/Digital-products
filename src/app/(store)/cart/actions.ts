@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { quoteCart } from "@/lib/pricing";
+import { type Fx, fxFor, getCurrencySettings, storefrontFx } from "@/lib/fx";
 import { type CartLineInfo, MAX_CART_LINES, MAX_LINE_QUANTITY } from "@/lib/cart";
 import { localized } from "@/i18n/config";
 import { dictionaryFor, getLocale } from "@/i18n/server";
@@ -70,6 +71,7 @@ export type CheckoutQuote =
       currency: string;
       coupon: { code: string; label: string } | null;
       couponError: string | null;
+      /** In `currency` (converted from the USD wallet); null for guests */
       walletBalanceCents: number | null;
     }
   | { ok: false; error: string };
@@ -86,6 +88,8 @@ const quoteSchema = z.object({
     .max(MAX_CART_LINES),
   couponCode: z.string().trim().max(40).optional(),
   useWallet: z.boolean().optional(),
+  /** The currency the cart shows; must be enabled (the rate is always the server's). */
+  currency: z.string().trim().toUpperCase().max(8).optional(),
 });
 
 // Wrong coupon codes are throttled per IP so the quote can't be used to guess codes.
@@ -103,18 +107,21 @@ export async function quoteCheckout(input: unknown): Promise<CheckoutQuote> {
   if (!parsed.success) return { ok: false, error: t.pricing.cartInvalid };
   const { items, useWallet } = parsed.data;
   const couponCode = parsed.data.couponCode?.toUpperCase() || undefined;
+  const settings = await getCurrencySettings();
+  const fx = parsed.data.currency ? fxFor(parsed.data.currency, settings) : await storefrontFx(settings);
+  if (!fx) return { ok: false, error: t.api.currencyUnavailable };
 
   const customer = await getSignedInCustomer();
   const ipKey = couponCode ? `coupon-fail:${await requestIp()}` : null;
   if (ipKey) {
     const wait = throttled(ipKey, COUPON_FAILS_MAX);
     if (wait) {
-      const quote = await priceCart(items, undefined, useWallet, customer, locale);
+      const quote = await priceCart(items, undefined, useWallet, customer, locale, fx);
       return quote.ok ? { ...quote, couponError: t.pricing.couponThrottled(t.common.minutes(wait)) } : quote;
     }
   }
 
-  const quote = await priceCart(items, couponCode, useWallet, customer, locale);
+  const quote = await priceCart(items, couponCode, useWallet, customer, locale, fx);
   if (ipKey && quote.ok && quote.couponError) hit(ipKey, COUPON_FAILS_WINDOW_MS);
   return quote;
 }
@@ -125,9 +132,11 @@ async function priceCart(
   useWallet: boolean | undefined,
   customer: Awaited<ReturnType<typeof getSignedInCustomer>>,
   locale: Awaited<ReturnType<typeof getLocale>>,
+  fx: Fx,
 ): Promise<CheckoutQuote> {
   const result = await quoteCart({
     locale,
+    fx,
     items,
     couponCode,
     useWallet: !!customer && !!useWallet,

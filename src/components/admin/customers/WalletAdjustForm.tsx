@@ -2,27 +2,21 @@
 
 import { useId, useRef, useState } from "react";
 import type { FormAction, FormState } from "@/app/admin/_lib/form-state";
+import { convertUsdCents, formatPlain, inputToUsdCents } from "@/lib/display-currency";
+import type { AdminFx } from "../MoneyInput";
 import { FormMessage } from "../ui";
 import { useFormAction } from "../useFormAction";
 
-function usd(cents: number) {
-  const [whole, frac] = (Math.abs(cents) / 100).toFixed(2).split(".");
-  return `${cents < 0 ? "-" : ""}$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${frac}`;
-}
-
-/** Mirrors the server parser so the confirm dialog can show the effect; the server re-validates. */
-function parseSignedCents(raw: string): number | null {
+/** "+12.50", "-5" (Unicode minus, Arabic-Indic digits) in the admin currency -> signed USD cents; mirrors the server. */
+function parseSignedUsd(raw: string, fx: AdminFx): number | null {
   const v = raw
     .trim()
     .replace(/\s+/g, "")
     .replace(/[−–]/g, "-")
     .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
     .replace(/٫/g, ".");
-  if (!/^[+-]?\d{1,5}(\.\d{1,2})?$/.test(v)) return null;
-  const sign = v.startsWith("-") ? -1 : 1;
-  const [whole, frac = ""] = v.replace(/^[+-]/, "").split(".");
-  const cents = sign * (Number(whole) * 100 + Number((frac + "00").slice(0, 2)));
-  return cents === 0 ? null : cents;
+  const cents = inputToUsdCents(v, fx.currency, fx.rate, { signed: true });
+  return cents === null || cents === 0 || Math.abs(cents) > 1_000_000 ? null : cents;
 }
 
 /** SUPER_ADMIN wallet credit (+) / debit (−) with a mandatory reason and a confirm step. */
@@ -31,11 +25,15 @@ export function WalletAdjustForm({
   customerId,
   email,
   balanceCents,
+  fx,
 }: {
   action: FormAction;
   customerId: string;
   email: string;
+  /** USD cents (the wallet's currency) */
   balanceCents: number;
+  /** The admin currency the amount is typed in */
+  fx: AdminFx;
 }) {
   const [state, form, pending] = useFormAction(action);
   const formRef = useRef<HTMLFormElement>(null);
@@ -50,6 +48,7 @@ export function WalletAdjustForm({
         pending={pending}
         email={email}
         balanceCents={balanceCents}
+        fx={fx}
         submit={() => formRef.current?.requestSubmit()}
       />
     </form>
@@ -61,25 +60,30 @@ function Fields({
   pending,
   email,
   balanceCents,
+  fx,
   submit,
 }: {
   state: FormState;
   pending: boolean;
   email: string;
   balanceCents: number;
+  fx: AdminFx;
   submit: () => void;
 }) {
+  // Amounts shown in the admin currency; the USD cents actually applied are shown next to them
+  const shown = (usdCents: number) => formatPlain(convertUsdCents(usdCents, fx.currency, fx.rate, { precise: true }), fx.currency);
+  const usd = (usdCents: number) => (fx.currency === "USD" ? shown(usdCents) : `${shown(usdCents)} (${formatPlain(usdCents, "USD")})`);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
-  const cents = parseSignedCents(amount);
+  const cents = parseSignedUsd(amount, fx);
   const after = cents === null ? null : balanceCents + cents;
 
   const openConfirm = () => {
-    if (cents === null) return setLocalError("أدخل مبلغاً بالدولار غير الصفر، مثل 10 للإضافة أو -5.50 للخصم.");
+    if (cents === null) return setLocalError(`أدخل مبلغاً بعملة ${fx.currency} غير الصفر، مثل 10 للإضافة أو -5.50 للخصم.`);
     if (note.trim().length < 3) return setLocalError("اكتب سبب التعديل (3 أحرف على الأقل).");
     if (after !== null && after < 0) return setLocalError(`لا يمكن الخصم: الرصيد الحالي ${usd(balanceCents)} فقط.`);
     setLocalError(null);
@@ -95,8 +99,9 @@ function Fields({
     <>
       <div>
         <label htmlFor="w-amount" className="label">
-          المبلغ (USD)
+          المبلغ ({fx.currency})
         </label>
+        <input type="hidden" name="moneyCurrency" value={fx.currency} />
         <input
           id="w-amount"
           name="amount"
@@ -113,6 +118,14 @@ function Fields({
         <p id="w-amount-hint" className="mt-1 text-xs text-muted">
           موجب لإضافة رصيد، وسالب (بعلامة -) للخصم. لا يمكن أن يصبح الرصيد سالباً.
         </p>
+        {fx.currency !== "USD" && cents !== null ? (
+          <p className="mt-1 text-[11px] text-muted">
+            يُطبَّق على المحفظة (بالدولار):{" "}
+            <span dir="ltr" className="font-display">
+              = {formatPlain(cents, "USD")} USD
+            </span>
+          </p>
+        ) : null}
       </div>
       <div>
         <label htmlFor="w-note" className="label">

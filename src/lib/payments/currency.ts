@@ -31,6 +31,13 @@ const DECIMALS: Readonly<Record<string, number>> = {
   XPF: 0,
 };
 
+/** Currency codes whose exponent is `decimals` (only 0 and 3 are listed; everything else is 2). */
+export function currenciesWithDecimals(decimals: 0 | 3): string[] {
+  return Object.entries(DECIMALS)
+    .filter(([, d]) => d === decimals)
+    .map(([code]) => code);
+}
+
 export function currencyDecimals(currency: string): number {
   return DECIMALS[currency.trim().toUpperCase()] ?? 2;
 }

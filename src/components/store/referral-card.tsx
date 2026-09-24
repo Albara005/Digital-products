@@ -1,8 +1,7 @@
 import { getDictionary } from "@/i18n/server";
-import { formatPrice } from "@/lib/format";
+import { getShopperMoney } from "@/app/(store)/_lib/money";
 import { CopyButton } from "./copy-button";
 import { IconChat, IconGift } from "./icons";
-import { WALLET_CURRENCY } from "./site";
 
 export type ReferralCardData = {
   /** Null while the program is switched off. */
@@ -16,12 +15,12 @@ export type ReferralCardData = {
 
 /** "Invite your friends" card on /account: share link, rule and the customer's referral totals. */
 export async function ReferralCard({ data }: { data: ReferralCardData }) {
-  const t = await getDictionary();
+  const [t, money] = await Promise.all([getDictionary(), getShopperMoney()]);
   const whatsapp = data.link ? `https://wa.me/?text=${encodeURIComponent(t.referral.share(data.link))}` : null;
   const stats = [
     { label: t.referral.invited, value: String(data.invited) },
     { label: t.referral.rewarded, value: String(data.rewarded) },
-    { label: t.referral.earned, value: formatPrice(data.earnedCents, WALLET_CURRENCY) },
+    { label: t.referral.earned, value: money.usd(data.earnedCents) },
   ];
 
   return (

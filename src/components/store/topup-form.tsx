@@ -4,33 +4,31 @@ import { useRouter } from "next/navigation";
 import { useId, useState, useSyncExternalStore } from "react";
 import { useLocale, useLocalePath, useT } from "@/i18n/client";
 import { LOCALE_HEADER } from "@/i18n/config";
-import { formatPrice } from "@/lib/format";
+import { topupLimits } from "@/lib/display-currency";
+import { useMoney } from "./currency";
 import { IconAlert, IconCard, IconLock, IconSpinner, IconWallet } from "./icons";
 import { latinDigits } from "./site";
 
 export type PaymentProviderOption = { id: "STRIPE" | "TAP"; label: string };
 
-const PRESETS = [1000, 2500, 5000, 10000];
-// Mirrors POST /api/wallet/topup: 500..50000 cents, whole dollars only.
-const MIN_CENTS = 500;
-const MAX_CENTS = 50000;
 const noopSubscribe = () => () => {};
 
-export function TopupForm({
-  providers,
-  devMode,
-  currency,
-}: {
-  providers: PaymentProviderOption[];
-  devMode: boolean;
-  currency: string;
-}) {
+/**
+ * Top-up in the customer's currency: whole amounts between the equivalents of $5 and $500
+ * (mirrors POST /api/wallet/topup, which charges that currency and credits the USD value).
+ */
+export function TopupForm({ providers, devMode }: { providers: PaymentProviderOption[]; devMode: boolean }) {
   const id = useId();
   const router = useRouter();
   const t = useT();
   const locale = useLocale();
   const localePath = useLocalePath();
-  const [choice, setChoice] = useState<number | "custom">(2500);
+  const money = useMoney();
+  const { currency } = money;
+  const limits = topupLimits(currency, money.rate);
+  const [picked, setChoice] = useState<number | "custom" | null>(null);
+  // Default: the second preset of the current currency (the currency can change after detection)
+  const choice = picked === "custom" || (picked !== null && limits.presets.includes(picked)) ? picked : (limits.presets[1] ?? limits.presets[0]);
   const [custom, setCustom] = useState("");
   const [provider, setProvider] = useState(providers[0]?.id);
   const [submitting, setSubmitting] = useState(false);
@@ -39,10 +37,11 @@ export function TopupForm({
   // The form posts with fetch; until hydration a click would fall back to a native GET.
   const hydrated = useSyncExternalStore(noopSubscribe, () => true, () => false);
 
-  const rangeText = t.topup.range(formatPrice(MIN_CENTS, currency), formatPrice(MAX_CENTS, currency));
-  const customCents = custom ? Number(custom) * 100 : 0;
+  const whole = (minor: number) => money.format(minor).replace(/[.,٫]0+(?=\D*$)/, "");
+  const rangeText = t.topup.range(whole(limits.min), whole(limits.max));
+  const customCents = custom ? Number(custom) * limits.step : 0;
   const amountCents = choice === "custom" ? customCents : choice;
-  const amountValid = Number.isSafeInteger(amountCents) && amountCents >= MIN_CENTS && amountCents <= MAX_CENTS;
+  const amountValid = Number.isSafeInteger(amountCents) && amountCents >= limits.min && amountCents <= limits.max;
   const unavailable = providers.length === 0 && !devMode;
   const customError =
     choice === "custom" && custom !== "" && !amountValid
@@ -61,7 +60,7 @@ export function TopupForm({
       const res = await fetch("/api/wallet/topup", {
         method: "POST",
         headers: { "Content-Type": "application/json", [LOCALE_HEADER]: locale },
-        body: JSON.stringify({ amountCents, ...(provider ? { provider } : {}) }),
+        body: JSON.stringify({ amountCents, currency, ...(provider ? { provider } : {}) }),
       });
       if (res.status === 401) {
         // Session expired since the page loaded.
@@ -107,7 +106,7 @@ export function TopupForm({
       <fieldset disabled={unavailable || submitting}>
         <legend className="mb-3 text-sm font-bold">{t.topup.amountLegend}</legend>
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-          {PRESETS.map((cents) => (
+          {limits.presets.map((cents) => (
             <label key={cents} className={chip(choice === cents)}>
               <input
                 type="radio"
@@ -118,7 +117,7 @@ export function TopupForm({
                 className="sr-only"
               />
               <span dir="ltr" className="font-display tabular-nums">
-                {formatPrice(cents, currency).replace(/\.00$/, "")}
+                {whole(cents)}
               </span>
             </label>
           ))}
@@ -138,14 +137,14 @@ export function TopupForm({
         {choice === "custom" ? (
           <div className="mt-3">
             <label htmlFor={`${id}-custom`} className="label">
-              {t.topup.customLabel}
+              {t.topup.customLabel(rangeText)}
             </label>
             <div className="relative">
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-y-0 left-3 grid place-items-center font-display text-muted"
+                className="pointer-events-none absolute inset-y-0 left-3 grid place-items-center font-display text-xs text-muted"
               >
-                $
+                {currency}
               </span>
               <input
                 id={`${id}-custom`}
@@ -155,11 +154,13 @@ export function TopupForm({
                 autoFocus
                 autoComplete="off"
                 value={custom}
-                onChange={(e) => setCustom(latinDigits(e.target.value).replace(/^0+/, "").slice(0, 3))}
+                onChange={(e) =>
+                  setCustom(latinDigits(e.target.value).replace(/\D/g, "").replace(/^0+/, "").slice(0, String(limits.max / limits.step).length))
+                }
                 aria-invalid={customError ? true : undefined}
                 aria-describedby={customError ? `${id}-custom-error` : undefined}
-                placeholder="40"
-                className={`input h-11 pl-7 text-left font-display text-base tabular-nums ${customError ? "border-danger focus:border-danger" : ""}`}
+                placeholder={String(limits.presets[1] ? limits.presets[1] / limits.step : 40)}
+                className={`input h-11 pl-12 text-left font-display text-base tabular-nums ${customError ? "border-danger focus:border-danger" : ""}`}
               />
             </div>
             {customError ? (
@@ -223,7 +224,7 @@ export function TopupForm({
             {t.topup.topUp}{" "}
             {amountValid ? (
               <span dir="ltr" className="font-display tabular-nums">
-                {formatPrice(amountCents, currency)}
+                {money.format(amountCents)}
               </span>
             ) : (
               t.topup.balance

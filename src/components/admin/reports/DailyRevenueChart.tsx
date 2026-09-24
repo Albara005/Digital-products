@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { formatCompactPlain, formatPlain } from "@/lib/display-currency";
 
 export type DailyPoint = {
   key: string; // YYYY-MM-DD
   axisLabel: string; // short, e.g. "12/9"
   fullLabel: string; // tooltip / table
+  /** Minor units of the chart currency (the admin currency). */
   cents: number;
   orders: number;
 };
@@ -14,21 +16,6 @@ export type DailyPoint = {
 const BAR = "#7f9c1d";
 const BAR_ACTIVE = "#d4ff3d";
 const PLOT_H = 200;
-
-// Deterministic formatting (no Intl in this Client Component) to avoid hydration mismatches.
-function usd(cents: number) {
-  const [whole, frac] = (Math.abs(cents) / 100).toFixed(2).split(".");
-  return `${cents < 0 ? "-" : ""}$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${frac}`;
-}
-
-function usdCompact(cents: number) {
-  const d = cents / 100;
-  const abs = Math.abs(d);
-  const short = (x: number) => String(Number(x.toFixed(Math.abs(x) < 10 ? 2 : 1)));
-  if (abs >= 1_000_000) return `$${short(d / 1_000_000)}M`;
-  if (abs >= 1_000) return `$${short(d / 1_000)}K`;
-  return `$${short(d)}`;
-}
 
 function niceScale(maxCents: number) {
   if (maxCents <= 0) return { top: 10000, step: 2500 };
@@ -44,7 +31,9 @@ function niceScale(maxCents: number) {
  * targets and tooltips are HTML so they follow the page's RTL flow: the oldest day is on the right,
  * like the dashboard chart.
  */
-export function DailyRevenueChart({ points }: { points: DailyPoint[] }) {
+export function DailyRevenueChart({ points, currency = "USD" }: { points: DailyPoint[]; currency?: string }) {
+  const usd = (minor: number) => formatPlain(minor, currency);
+  const usdCompact = (minor: number) => formatCompactPlain(minor, currency);
   const [active, setActive] = useState<number | null>(null);
   const n = points.length;
   const max = Math.max(0, ...points.map((p) => p.cents));

@@ -2,11 +2,19 @@
 
 import { useState } from "react";
 import type { FormAction, FormState } from "@/app/admin/_lib/form-state";
-import { DISPLAY_CURRENCIES, type DisplayCurrency } from "@/lib/display-currency";
+import {
+  CURRENCY_NAMES_AR,
+  DISPLAY_CURRENCIES,
+  type DisplayCurrency,
+  convertUsdCents,
+  formatPlain,
+  inputToUsdCents,
+} from "@/lib/display-currency";
+import { type AdminFx, MoneyInput as AdminMoneyInput } from "../MoneyInput";
 import { FieldError, FormMessage } from "../ui";
 import { useFormAction } from "../useFormAction";
 
-/** Referral settings as form strings: money in dollars ("9.99"), percentage as a whole number. */
+/** Referral settings as form strings: money in the admin currency ("9.99"), percentage as a whole number. */
 export type ReferralFormValues = {
   enabled: boolean;
   rewardType: "PERCENT" | "FIXED";
@@ -15,16 +23,6 @@ export type ReferralFormValues = {
   minOrder: string;
 };
 
-function usd(cents: number) {
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
-function toCents(v: string): number | null {
-  if (!/^\d{1,7}(\.\d{1,2})?$/.test(v.trim())) return null;
-  const [whole, frac = ""] = v.trim().split(".");
-  return Number(whole) * 100 + Number((frac + "00").slice(0, 2));
-}
-
 function MoneyInput({
   id,
   name,
@@ -32,6 +30,7 @@ function MoneyInput({
   placeholder,
   state,
   onChange,
+  fx,
 }: {
   id: string;
   name: string;
@@ -39,26 +38,25 @@ function MoneyInput({
   placeholder?: string;
   state: FormState;
   onChange?: (value: string) => void;
+  fx: AdminFx;
 }) {
   return (
-    <div className="relative">
-      <span className="pointer-events-none absolute inset-y-0 left-3 grid place-items-center text-sm text-muted">$</span>
-      <input
-        id={id}
-        name={name}
-        dir="ltr"
-        inputMode="decimal"
-        defaultValue={defaultValue}
-        placeholder={placeholder}
-        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
-        className="input pl-7! text-left font-display"
-        aria-invalid={Boolean(state?.errors?.[name])}
-      />
-    </div>
+    <AdminMoneyInput
+      id={id}
+      name={name}
+      fx={fx}
+      defaultValue={defaultValue}
+      placeholder={placeholder}
+      onChange={onChange}
+      invalid={Boolean(state?.errors?.[name])}
+    />
   );
 }
 
-export function ReferralSettingsForm({ action, values }: { action: FormAction; values: ReferralFormValues }) {
+/** Referral amounts are stored in USD cents and typed/shown in the admin currency `fx`. */
+export function ReferralSettingsForm({ action, values, fx }: { action: FormAction; values: ReferralFormValues; fx: AdminFx }) {
+  const toCents = (v: string) => inputToUsdCents(v, fx.currency, fx.rate);
+  const usd = (cents: number) => formatPlain(convertUsdCents(cents, fx.currency, fx.rate, { precise: true }), fx.currency);
   const [state, form, pending] = useFormAction(action);
   const [type, setType] = useState(values.rewardType);
   const [rewardValue, setRewardValue] = useState(values.rewardValue);
@@ -142,19 +140,15 @@ export function ReferralSettingsForm({ action, values }: { action: FormAction; v
               />
             </div>
           ) : (
-            <div className="relative">
-              <span className="pointer-events-none absolute inset-y-0 left-3 grid place-items-center text-sm text-muted">$</span>
-              <input
-                id="ref-value"
-                name="rewardValue"
-                dir="ltr"
-                inputMode="decimal"
-                value={rewardValue}
-                onChange={(e) => setRewardValue(e.target.value)}
-                className="input pl-7! text-left font-display"
-                aria-invalid={Boolean(state?.errors?.rewardValue)}
-              />
-            </div>
+            <AdminMoneyInput
+              key="fixed"
+              id="ref-value"
+              name="rewardValue"
+              fx={fx}
+              defaultValue={rewardValue}
+              onChange={setRewardValue}
+              invalid={Boolean(state?.errors?.rewardValue)}
+            />
           )}
           <FieldError state={state} name="rewardValue" />
         </div>
@@ -162,7 +156,7 @@ export function ReferralSettingsForm({ action, values }: { action: FormAction; v
           <label htmlFor="ref-max" className="label">
             الحد الأقصى للمكافأة
           </label>
-          <MoneyInput id="ref-max" name="maxReward" defaultValue={values.maxReward} placeholder="بلا حد" state={state} onChange={setMaxReward} />
+          <MoneyInput id="ref-max" name="maxReward" defaultValue={values.maxReward} placeholder="بلا حد" state={state} onChange={setMaxReward} fx={fx} />
           <p className="mt-1 text-xs text-muted">{type === "PERCENT" ? "اتركه فارغاً لعدم وضع حد." : "لا يُستخدم مع المبلغ الثابت."}</p>
           <FieldError state={state} name="maxReward" />
         </div>
@@ -170,7 +164,7 @@ export function ReferralSettingsForm({ action, values }: { action: FormAction; v
           <label htmlFor="ref-min" className="label">
             أقل قيمة للطلب الأول
           </label>
-          <MoneyInput id="ref-min" name="minOrder" defaultValue={values.minOrder} placeholder="0" state={state} onChange={setMinOrder} />
+          <MoneyInput id="ref-min" name="minOrder" defaultValue={values.minOrder} placeholder="0" state={state} onChange={setMinOrder} fx={fx} />
           <p className="mt-1 text-xs text-muted">الطلبات الأقل منها لا تمنح مكافأة.</p>
           <FieldError state={state} name="minOrder" />
         </div>
@@ -223,17 +217,9 @@ export function StoreSettingsForm({ action, lowStockThreshold }: { action: FormA
   );
 }
 
-const CURRENCY_NAMES: Record<DisplayCurrency, string> = {
-  SAR: "ريال سعودي",
-  AED: "درهم إماراتي",
-  KWD: "دينار كويتي",
-  QAR: "ريال قطري",
-  BHD: "دينار بحريني",
-  OMR: "ريال عماني",
-  EGP: "جنيه مصري",
-};
+const CURRENCY_NAMES: Record<DisplayCurrency, string> = CURRENCY_NAMES_AR;
 
-/** Storefront display currencies: which ones shoppers may pick, and the rate per 1 USD. */
+/** Store currencies: which ones shoppers may pick (and are charged in), and the rate per 1 USD. */
 export function CurrencySettingsForm({
   action,
   enabled,
@@ -292,7 +278,9 @@ export function CurrencySettingsForm({
         </table>
       </div>
       <p className="text-xs leading-relaxed text-muted">
-        تُعرض الأسعار المحوّلة للعملاء كقيمة تقريبية («≈») بجانب السعر بالدولار فقط. الدفع والمبالغ المسجّلة تبقى بالدولار دائماً.
+        أسعار الصرف تُستخدم للأسعار وللدفع: العميل الذي يختار عملة يرى الأسعار بها ويدفع بها فعلياً (السعر بالدولار × سعر الصرف،
+        مقرَّباً لوحدات العملة). الأسعار في لوحة التحكم تُخزَّن بالدولار، والطلبات السابقة تحتفظ بسعر الصرف الذي دُفعت به. تغيير
+        السعر يؤثر على الطلبات الجديدة فقط.
       </p>
       <FormMessage state={state} />
       <div>

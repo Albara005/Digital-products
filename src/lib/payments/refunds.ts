@@ -8,6 +8,7 @@ import { releaseOrderReservations } from "@/lib/fulfillment";
 import { notifyAdmin } from "@/lib/notify";
 import { cancelReferralRewardInTx } from "@/lib/referrals";
 import { creditWallet, orderWalletNetDebit } from "@/lib/wallet";
+import { convertUsdCents, toUsdCents } from "@/lib/display-currency";
 import { getProvider } from "./providers";
 import { PaymentProviderError, type RefundReceipt } from "./types";
 
@@ -23,7 +24,9 @@ type OrderRow = {
   customerId: string;
   totalCents: number;
   walletAppliedCents: number;
+  walletDebitUsdCents: number;
   currency: string;
+  fxRate: number;
   paymentProvider: PaymentProvider | null;
   stripeSessionId: string | null;
   stripePaymentIntent: string | null;
@@ -48,6 +51,10 @@ class RefundRejected extends Error {}
  * - WALLET: the whole order value is credited to the customer's wallet as store credit; no
  *   gateway call.
  *
+ * Gateway amounts are in the order currency. The wallet is USD: its part goes back exactly as
+ * debited (ledger), and a gateway part credited to the wallet is converted with the order's own
+ * fxRate (not today's rate), so the customer gets back the USD value they paid.
+ *
  * Runs in one transaction holding the order row lock (SELECT ... FOR UPDATE), so a double click or
  * two admins serialize: the second call sees REFUNDED and changes nothing. The order becomes
  * REFUNDED with refundedAt, still-RESERVED stock goes back on sale (SOLD codes stay with the
@@ -66,7 +73,7 @@ export async function refundOrderPayment(
   try {
     const outcome = await prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<OrderRow[]>`
-        SELECT status::text AS status, "customerId", "totalCents", "walletAppliedCents", currency,
+        SELECT status::text AS status, "customerId", "totalCents", "walletAppliedCents", "walletDebitUsdCents", currency, "fxRate",
                "paymentProvider"::text AS "paymentProvider", "stripeSessionId", "stripePaymentIntent", "tapChargeId"
         FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
       const order = rows[0];
@@ -78,10 +85,15 @@ export async function refundOrderPayment(
 
       const provider = providerOf(order);
       const gatewayCents = provider === "WALLET" ? 0 : Math.max(0, order.totalCents - order.walletAppliedCents);
-      // What the wallet actually paid for this order (normally walletAppliedCents)
+      // What the wallet actually paid for this order, in USD cents (normally walletDebitUsdCents)
       const walletPaidCents = Math.max(0, await orderWalletNetDebit(tx, orderId));
+      // ... and the same in the order currency, for the refunded total
+      const walletPaidOrderCents =
+        walletPaidCents === order.walletDebitUsdCents
+          ? order.walletAppliedCents
+          : convertUsdCents(walletPaidCents, order.currency, order.fxRate);
 
-      let walletCreditCents: number;
+      let walletCreditCents: number; // USD cents
       if (opts.method === "ORIGINAL") {
         if (gatewayCents > 0 && (provider === "STRIPE" || provider === "TAP")) {
           if (provider === "TAP" && !order.tapChargeId) {
@@ -105,7 +117,7 @@ export async function refundOrderPayment(
         }
         walletCreditCents = walletPaidCents;
       } else {
-        walletCreditCents = gatewayCents + walletPaidCents;
+        walletCreditCents = toUsdCents(gatewayCents, order.currency, order.fxRate, "round") + walletPaidCents;
       }
 
       const shortId = orderId.slice(-8).toUpperCase();
@@ -132,7 +144,8 @@ export async function refundOrderPayment(
         currency: order.currency,
         gatewayCents: opts.method === "ORIGINAL" ? gatewayCents : 0,
         walletCreditCents,
-        refundedCents: (opts.method === "ORIGINAL" ? gatewayCents : 0) + walletCreditCents,
+        // In the order currency: the gateway part (sent back, or credited to the wallet) + the wallet part
+        refundedCents: gatewayCents + (walletPaidCents > 0 ? walletPaidOrderCents : 0),
         releasedUnits,
         referralReward,
       };
@@ -145,7 +158,7 @@ export async function refundOrderPayment(
       currency: outcome.currency,
       refundedCents: outcome.refundedCents,
       gatewayCents: outcome.gatewayCents,
-      walletCreditCents: outcome.walletCreditCents,
+      walletCreditUsdCents: outcome.walletCreditCents,
       releasedUnits: outcome.releasedUnits,
       referralReward: outcome.referralReward,
       gatewayRefundId: receipt?.refundId ?? null,

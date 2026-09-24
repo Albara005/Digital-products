@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { Coupon } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { formatDate, formatPrice } from "@/lib/format";
+import { formatDate } from "@/lib/format";
+import { getAdminMoney } from "../../_lib/money";
 import { ActionButton } from "@/components/admin/ActionButton";
 import { PencilIcon, PlusIcon, TrashIcon } from "@/components/admin/icons";
 import { Pagination, pageParam } from "@/components/admin/Pagination";
@@ -14,7 +15,6 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "الكوبونات" };
 
 const PAGE_SIZE = 25;
-const CURRENCY = "USD";
 
 type CouponState = { label: string; className: string };
 
@@ -31,6 +31,8 @@ function stateOf(c: Pick<Coupon, "active" | "startsAt" | "endsAt" | "maxUses" | 
 export default async function CouponsPage({ searchParams }: PageProps<"/admin/coupons">) {
   await requireAdminAccess();
   const page = pageParam((await searchParams).page);
+  // Coupon amounts are USD cents, shown in the admin currency
+  const money = await getAdminMoney();
 
   const [total, coupons] = await Promise.all([
     prisma.coupon.count(),
@@ -100,13 +102,13 @@ export default async function CouponsPage({ searchParams }: PageProps<"/admin/co
                     </td>
                     <td className="whitespace-nowrap">
                       <span className="font-display font-semibold">
-                        {c.type === "PERCENT" ? `${c.value}%` : formatPrice(c.value, CURRENCY)}
+                        {c.type === "PERCENT" ? `${c.value}%` : money.usd(c.value)}
                       </span>
                       {c.type === "PERCENT" && c.maxDiscountCents != null && (
-                        <span className="block text-xs text-muted">حد أقصى {formatPrice(c.maxDiscountCents, CURRENCY)}</span>
+                        <span className="block text-xs text-muted">حد أقصى {money.usd(c.maxDiscountCents)}</span>
                       )}
                       {c.minSubtotalCents != null && (
-                        <span className="block text-xs text-muted">لطلب من {formatPrice(c.minSubtotalCents, CURRENCY)}</span>
+                        <span className="block text-xs text-muted">لطلب من {money.usd(c.minSubtotalCents)}</span>
                       )}
                     </td>
                     <td className="whitespace-nowrap">

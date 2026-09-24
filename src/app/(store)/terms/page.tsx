@@ -43,7 +43,7 @@ function ArabicTerms() {
 
       <ContentSection n={3} title="الأسعار والدفع">
         <ul>
-          <li>الأسعار المعروضة نهائية بالعملة الموضّحة بجانب كل منتج، وقد تتغيّر دون إشعار مسبق قبل إتمام الطلب.</li>
+          <li>الأسعار المعروضة نهائية بالعملة التي تختارها، وهي عملة الدفع نفسها، وقد تتغيّر دون إشعار مسبق قبل إتمام الطلب.</li>
           <li>تتم المدفوعات عبر بوابة دفع آمنة ومشفّرة، ولا نخزّن بيانات بطاقتك.</li>
           <li>أي رسوم يفرضها بنكك (مثل رسوم تحويل العملة) يتحمّلها العميل.</li>
         </ul>
@@ -110,7 +110,7 @@ function EnglishTerms() {
 
       <ContentSection n={3} title="Prices and payment">
         <ul>
-          <li>Prices are final and set in US dollars, the currency you are charged in. Prices shown in other currencies are approximate and for reference only. Prices may change without notice before an order is placed.</li>
+          <li>Prices are final in the currency you select, which is the currency you are charged in. Prices may change without notice before an order is placed.</li>
           <li>Payments are processed through a secure, encrypted payment gateway, and we never store your card details.</li>
           <li>Any fees charged by your bank (such as currency conversion fees) are the customer&apos;s responsibility.</li>
         </ul>

@@ -1,6 +1,7 @@
 import "server-only";
 import { Prisma, type OrderStatus, type PaymentProvider } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { currenciesWithDecimals } from "@/lib/payments/currency";
 import { addDays, dayKey } from "../../_lib/dates";
 import { serverTimeZone, type ReportRange } from "./range";
 
@@ -12,6 +13,10 @@ import { serverTimeZone, type ReportRange } from "./range";
  * Everything else (cost, discounts, providers, coupons, products) is over the net (kept) orders.
  * Cost of goods is estimated from each variant's CURRENT costCents over delivered lines.
  * All aggregation happens in SQL: a fixed number of queries whatever the range size.
+ *
+ * Every amount here is USD cents: orders are charged in the shopper's currency, so totals use
+ * Order.totalUsdCents, wallet parts Order.walletDebitUsdCents, and other order-currency amounts
+ * (discounts, line prices) are converted with the order's own fxRate (usdOf below).
  */
 
 const KEPT: OrderStatus[] = ["PAID", "FULFILLED"];
@@ -81,22 +86,35 @@ function bounds(range: ReportRange) {
 
 const n = (v: bigint | number | null | undefined) => Number(v ?? 0);
 
+const inList = (codes: string[]) => Prisma.join(codes.map((c) => Prisma.sql`${c}`));
+
+/** SQL: an amount in minor units of the order "o"'s currency -> USD cents at the order's fxRate. */
+function usdOf(amount: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`ROUND((${amount})::numeric / (o."fxRate"::numeric * (CASE
+    WHEN o.currency IN (${inList(currenciesWithDecimals(3))}) THEN 10
+    WHEN o.currency IN (${inList(currenciesWithDecimals(0))}) THEN 0.01
+    ELSE 1 END)))`;
+}
+
 export async function getReport(range: ReportRange): Promise<Report> {
   const paidIn = { gte: range.start, lt: range.end };
   const { start, end } = bounds(range);
   const tz = serverTimeZone();
 
-  const [byStatus, newCustomers, dayRows, productRows, providerRows, couponRows] = await Promise.all([
-    prisma.order.groupBy({
-      by: ["status"],
-      where: { paidAt: paidIn, status: { in: [...KEPT, "REFUNDED"] } },
-      _sum: { totalCents: true, discountCents: true, walletAppliedCents: true },
-      _count: { _all: true },
-    }),
+  const [statusRows, newCustomers, dayRows, productRows, providerRows, couponRows] = await Promise.all([
+    prisma.$queryRaw<{ status: OrderStatus; total: bigint; discount: bigint; wallet: bigint; orders: bigint }[]>`
+      SELECT o.status::text AS status,
+             SUM(o."totalUsdCents")::bigint AS total,
+             SUM(${usdOf(Prisma.sql`o."discountCents"`)})::bigint AS discount,
+             SUM(o."walletDebitUsdCents")::bigint AS wallet,
+             COUNT(*)::bigint AS orders
+      FROM "Order" o
+      WHERE o.status IN ('PAID', 'FULFILLED', 'REFUNDED') AND o."paidAt" >= ${start} AND o."paidAt" < ${end}
+      GROUP BY 1`,
     prisma.customer.count({ where: { createdAt: paidIn } }),
     prisma.$queryRaw<{ day: string; cents: bigint; orders: bigint }[]>`
       SELECT to_char((o."paidAt" AT TIME ZONE 'UTC') AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS day,
-             SUM(o."totalCents")::bigint AS cents,
+             SUM(o."totalUsdCents")::bigint AS cents,
              COUNT(*)::bigint AS orders
       FROM "Order" o
       WHERE o.status IN ('PAID', 'FULFILLED') AND o."paidAt" >= ${start} AND o."paidAt" < ${end}
@@ -117,9 +135,9 @@ export async function getReport(range: ReportRange): Promise<Report> {
     >`
       SELECT p.id AS "productId", p.name, c.id AS "categoryId", c.name AS "categoryName",
              SUM(oi.quantity)::bigint AS units,
-             SUM(oi.quantity * oi."unitPriceCents")::bigint AS revenue,
+             SUM(${usdOf(Prisma.sql`oi.quantity * oi."unitPriceCents"`)})::bigint AS revenue,
              COALESCE(SUM(oi.quantity * v."costCents") FILTER (WHERE oi."deliveredAt" IS NOT NULL AND v."costCents" IS NOT NULL), 0)::bigint AS cost,
-             COALESCE(SUM(oi.quantity * oi."unitPriceCents") FILTER (WHERE oi."deliveredAt" IS NOT NULL AND v."costCents" IS NOT NULL), 0)::bigint AS "costedRevenue",
+             COALESCE(SUM(${usdOf(Prisma.sql`oi.quantity * oi."unitPriceCents"`)}) FILTER (WHERE oi."deliveredAt" IS NOT NULL AND v."costCents" IS NOT NULL), 0)::bigint AS "costedRevenue",
              COUNT(*) FILTER (WHERE oi."deliveredAt" IS NOT NULL AND v."costCents" IS NULL)::bigint AS missing,
              COUNT(*) FILTER (WHERE oi."deliveredAt" IS NOT NULL)::bigint AS delivered
       FROM "OrderItem" oi
@@ -132,16 +150,23 @@ export async function getReport(range: ReportRange): Promise<Report> {
     prisma.order.groupBy({
       by: ["paymentProvider"],
       where: { paidAt: paidIn, status: { in: KEPT } },
-      _sum: { totalCents: true, walletAppliedCents: true },
+      _sum: { totalUsdCents: true, walletDebitUsdCents: true },
       _count: { _all: true },
     }),
-    prisma.order.groupBy({
-      by: ["couponId"],
-      where: { paidAt: paidIn, status: { in: KEPT }, couponId: { not: null } },
-      _sum: { totalCents: true, discountCents: true },
-      _count: { _all: true },
-    }),
+    prisma.$queryRaw<{ couponId: string; uses: bigint; discount: bigint; revenue: bigint }[]>`
+      SELECT o."couponId" AS "couponId",
+             COUNT(*)::bigint AS uses,
+             SUM(${usdOf(Prisma.sql`o."discountCents"`)})::bigint AS discount,
+             SUM(o."totalUsdCents")::bigint AS revenue
+      FROM "Order" o
+      WHERE o.status IN ('PAID', 'FULFILLED') AND o."couponId" IS NOT NULL AND o."paidAt" >= ${start} AND o."paidAt" < ${end}
+      GROUP BY 1`,
   ]);
+  const byStatus = statusRows.map((r) => ({
+    status: r.status,
+    _sum: { totalCents: n(r.total), discountCents: n(r.discount), walletAppliedCents: n(r.wallet) },
+    _count: { _all: n(r.orders) },
+  }));
 
   // Headline numbers
   const kept = byStatus.filter((s) => KEPT.includes(s.status));
@@ -229,8 +254,8 @@ export async function getReport(range: ReportRange): Promise<Report> {
       .map((p) => ({
         provider: p.paymentProvider,
         orders: p._count._all,
-        cents: p._sum.totalCents ?? 0,
-        walletCents: p._sum.walletAppliedCents ?? 0,
+        cents: p._sum.totalUsdCents ?? 0,
+        walletCents: p._sum.walletDebitUsdCents ?? 0,
       }))
       .sort((a, b) => b.cents - a.cents),
     coupons: couponRows
@@ -240,9 +265,9 @@ export async function getReport(range: ReportRange): Promise<Report> {
               {
                 couponId: c.couponId,
                 code: codes.get(c.couponId) ?? "—",
-                uses: c._count._all,
-                discountCents: c._sum.discountCents ?? 0,
-                revenueCents: c._sum.totalCents ?? 0,
+                uses: n(c.uses),
+                discountCents: n(c.discount),
+                revenueCents: n(c.revenue),
               },
             ]
           : [],

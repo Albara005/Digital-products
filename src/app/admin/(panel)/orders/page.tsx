@@ -3,11 +3,12 @@ import Link from "next/link";
 import { z } from "zod";
 import { OrderStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { formatDate, formatPrice, orderStatusLabel } from "@/lib/format";
+import { formatDate, orderStatusLabel } from "@/lib/format";
 import { SearchIcon } from "@/components/admin/icons";
 import { Pagination, firstParam, pageParam } from "@/components/admin/Pagination";
 import { DataTable, EmptyState, OrderStatusBadge, PageHeader, shortId } from "@/components/admin/ui";
 import { requireAdminAccess } from "../../_lib/guard";
+import { getAdminMoney } from "../../_lib/money";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "الطلبات" };
@@ -19,6 +20,7 @@ const statusParam = z.enum(OrderStatus).optional().catch(undefined);
 export default async function OrdersPage({ searchParams }: PageProps<"/admin/orders">) {
   await requireAdminAccess();
   const sp = await searchParams;
+  const money = await getAdminMoney();
   const status = statusParam.parse(firstParam(sp.status) || undefined);
   const q = firstParam(sp.q).replace(/^#/, "");
   const page = pageParam(sp.page);
@@ -46,6 +48,7 @@ export default async function OrdersPage({ searchParams }: PageProps<"/admin/ord
         id: true,
         status: true,
         totalCents: true,
+        totalUsdCents: true,
         currency: true,
         createdAt: true,
         paidAt: true,
@@ -164,7 +167,12 @@ export default async function OrdersPage({ searchParams }: PageProps<"/admin/ord
                       <span className="text-xs text-muted">+{o._count.items - o.items.length} أخرى</span>
                     )}
                   </td>
-                  <td className="font-display tabular-nums">{formatPrice(o.totalCents, o.currency)}</td>
+                  <td className="font-display tabular-nums">
+                    {money.own(o.totalCents, o.currency)}
+                    {money.equivalent(o.totalUsdCents, o.currency) && (
+                      <span className="block text-[11px] text-muted">≈ {money.equivalent(o.totalUsdCents, o.currency)}</span>
+                    )}
+                  </td>
                   <td>
                     <OrderStatusBadge status={o.status} />
                   </td>

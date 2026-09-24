@@ -3,11 +3,12 @@ import Link from "next/link";
 import { z } from "zod";
 import { Prisma, ProductType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { formatPrice, productTypeLabel } from "@/lib/format";
+import { productTypeLabel } from "@/lib/format";
 import { LayersIcon, PencilIcon, PlusIcon, SearchIcon, StarIcon } from "@/components/admin/icons";
 import { Pagination, firstParam, pageParam } from "@/components/admin/Pagination";
 import { DataTable, EmptyState, PageHeader, ProductTypeBadge, btnSm } from "@/components/admin/ui";
 import { requireAdminAccess } from "../../_lib/guard";
+import { getAdminMoney } from "../../_lib/money";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "المنتجات" };
@@ -20,6 +21,7 @@ const statusParam = z.enum(["active", "inactive"]).optional().catch(undefined);
 export default async function ProductsPage({ searchParams }: PageProps<"/admin/products">) {
   await requireAdminAccess();
   const sp = await searchParams;
+  const money = await getAdminMoney();
   const q = firstParam(sp.q);
   const category = firstParam(sp.category);
   const type = typeParam.parse(firstParam(sp.type) || undefined);
@@ -192,7 +194,7 @@ export default async function ProductsPage({ searchParams }: PageProps<"/admin/p
                         return (
                           <li key={v.id} className="flex items-center gap-2 whitespace-nowrap text-xs">
                             <bdi className="text-text">{v.label}</bdi>
-                            <span className="font-display text-muted">{formatPrice(v.priceCents, v.currency)}</span>
+                            <span className="font-display text-muted">{v.currency === "USD" ? money.usd(v.priceCents) : money.own(v.priceCents, v.currency)}</span>
                             {p.type !== "SERVICE" && (
                               <span
                                 className={`badge px-2 font-display ${

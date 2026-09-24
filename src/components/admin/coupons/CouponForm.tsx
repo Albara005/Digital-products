@@ -3,12 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { FormAction, FormState } from "@/app/admin/_lib/form-state";
+import { type AdminFx, MoneyInput } from "../MoneyInput";
 import { FieldError, FormMessage } from "../ui";
 import { useFormAction } from "../useFormAction";
 
 export type CouponScope = "all" | "category" | "product";
 
-/** Form values as strings: money in dollars ("4.99"), dates as datetime-local in the shop's time zone. */
+/** Form values as strings: money in the admin currency ("4.99"; stored as USD cents), dates as datetime-local in the shop's time zone. */
 export type CouponFormData = {
   id: string;
   code: string;
@@ -34,18 +35,21 @@ export function CouponForm({
   categories,
   products,
   coupon,
+  fx,
 }: {
   action: FormAction;
   categories: Option[];
   products: Option[];
   coupon?: CouponFormData;
+  /** Admin currency the amounts are typed in */
+  fx: AdminFx;
 }) {
   const [state, form, pending] = useFormAction(action);
 
   return (
     <form {...form} noValidate className="flex max-w-3xl flex-col gap-6">
       {coupon && <input type="hidden" name="id" value={coupon.id} />}
-      <CouponFields coupon={coupon} categories={categories} products={products} state={state} />
+      <CouponFields coupon={coupon} categories={categories} products={products} state={state} fx={fx} />
       <FormMessage state={state} />
       <div className="flex flex-wrap gap-2">
         <button type="submit" className="btn-primary" disabled={pending}>
@@ -64,11 +68,13 @@ function CouponFields({
   categories,
   products,
   state,
+  fx,
 }: {
   coupon?: CouponFormData;
   categories: Option[];
   products: Option[];
   state: FormState;
+  fx: AdminFx;
 }) {
   const [code, setCode] = useState(coupon?.code ?? "");
   const [type, setType] = useState<"PERCENT" | "FIXED">(coupon?.type ?? "PERCENT");
@@ -107,7 +113,7 @@ function CouponFields({
             {(
               [
                 ["PERCENT", "نسبة مئوية", "مثل 10% من قيمة المنتجات المشمولة"],
-                ["FIXED", "مبلغ ثابت", "مثل 5$ تُخصم من الطلب"],
+                ["FIXED", "مبلغ ثابت", "مبلغ يُخصم من الطلب (يُحوَّل لعملة العميل)"],
               ] as const
             ).map(([value, title, hint]) => (
               <label
@@ -137,33 +143,45 @@ function CouponFields({
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label htmlFor="c-value" className="label">
-              {type === "PERCENT" ? "النسبة (%)" : "مبلغ الخصم (USD)"}
+              {type === "PERCENT" ? "النسبة (%)" : `مبلغ الخصم (${fx.currency})`}
             </label>
-            <input
-              id="c-value"
-              name="value"
-              inputMode="decimal"
-              dir="ltr"
-              className="input text-start font-display"
-              defaultValue={coupon?.value ?? ""}
-              placeholder={type === "PERCENT" ? "10" : "5.00"}
-              required
-            />
+            {type === "PERCENT" ? (
+              <input
+                key="percent"
+                id="c-value"
+                name="value"
+                inputMode="decimal"
+                dir="ltr"
+                className="input text-start font-display"
+                defaultValue={coupon?.type === "PERCENT" ? coupon.value : ""}
+                placeholder="10"
+                required
+              />
+            ) : (
+              <MoneyInput
+                key="fixed"
+                id="c-value"
+                name="value"
+                fx={fx}
+                defaultValue={coupon?.type === "FIXED" ? coupon.value : ""}
+                placeholder="5.00"
+                invalid={Boolean(state?.errors?.value)}
+              />
+            )}
             <FieldError state={state} name="value" />
           </div>
           {type === "PERCENT" && (
             <div>
               <label htmlFor="c-max" className="label">
-                الحد الأقصى للخصم (USD) <span className="text-xs font-normal">(اختياري)</span>
+                الحد الأقصى للخصم ({fx.currency}) <span className="text-xs font-normal">(اختياري)</span>
               </label>
-              <input
+              <MoneyInput
                 id="c-max"
                 name="maxDiscount"
-                inputMode="decimal"
-                dir="ltr"
-                className="input text-start font-display"
+                fx={fx}
                 defaultValue={coupon?.maxDiscount ?? ""}
                 placeholder="5.00"
+                invalid={Boolean(state?.errors?.maxDiscount)}
               />
               <FieldError state={state} name="maxDiscount" />
             </div>
@@ -176,16 +194,15 @@ function CouponFields({
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <label htmlFor="c-min" className="label">
-              حد أدنى للمشتريات (USD)
+              حد أدنى للمشتريات ({fx.currency})
             </label>
-            <input
+            <MoneyInput
               id="c-min"
               name="minSubtotal"
-              inputMode="decimal"
-              dir="ltr"
-              className="input text-start font-display"
+              fx={fx}
               defaultValue={coupon?.minSubtotal ?? ""}
               placeholder="بدون"
+              invalid={Boolean(state?.errors?.minSubtotal)}
             />
             <FieldError state={state} name="minSubtotal" />
           </div>

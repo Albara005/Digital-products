@@ -131,6 +131,7 @@ model ProductVariant {
   productId      String
   label          String
   labelEn        String?
+  // Catalog prices are USD cents; the storefront converts them to the shopper's currency
   priceCents     Int
   // Supplier cost, for profit reports
   costCents      Int?
@@ -165,6 +166,7 @@ model Customer {
   name               String?
   // Set on first successful email-code sign-in
   emailVerifiedAt    DateTime?
+  // Wallet balance, always in USD cents (shown converted to the customer's currency)
   walletBalanceCents Int                 @default(0)
   orders             Order[]
   walletTransactions WalletTransaction[]
@@ -266,7 +268,7 @@ enum WalletTransactionType {
   ADJUSTMENT
 }
 
-// Append-only ledger; Customer.walletBalanceCents is the running total
+// Append-only ledger in USD cents; Customer.walletBalanceCents is the running total
 model WalletTransaction {
   id                String                @id @default(cuid())
   customer          Customer              @relation(fields: [customerId], references: [id])
@@ -293,18 +295,22 @@ enum TopupStatus {
 }
 
 model WalletTopup {
-  id           String              @id @default(cuid())
-  customer     Customer            @relation(fields: [customerId], references: [id])
-  customerId   String
-  amountCents  Int
-  currency     String              @default("USD")
-  status       TopupStatus         @default(PENDING)
-  provider     PaymentProvider
+  id             String              @id @default(cuid())
+  customer       Customer            @relation(fields: [customerId], references: [id])
+  customerId     String
+  // Charged amount, in minor units of `currency` (the customer's currency when they topped up)
+  amountCents    Int
+  currency       String              @default("USD")
+  // Units of `currency` per USD at creation; the wallet (USD) is credited creditUsdCents
+  fxRate         Float               @default(1)
+  creditUsdCents Int
+  status         TopupStatus         @default(PENDING)
+  provider       PaymentProvider
   // Stripe Checkout session id / Tap charge id
-  providerRef  String?             @unique
-  paidAt       DateTime?
-  transactions WalletTransaction[]
-  createdAt    DateTime            @default(now())
+  providerRef    String?             @unique
+  paidAt         DateTime?
+  transactions   WalletTransaction[]
+  createdAt      DateTime            @default(now())
 
   @@index([customerId, createdAt])
 }
@@ -326,10 +332,11 @@ model Coupon {
   // Stored uppercase
   code             String             @unique
   type             CouponType
-  // PERCENT: 1-100; FIXED: cents
+  // PERCENT: 1-100; FIXED: USD cents (converted to the order currency at checkout)
   value            Int
+  // USD cents (converted to the order currency before comparing)
   minSubtotalCents Int?
-  // Cap for PERCENT coupons, in cents
+  // Cap for PERCENT coupons, in USD cents
   maxDiscountCents Int?
   maxUses          Int?
   // Counts active (PENDING/PAID/FULFILLED) orders; released when an order fails
@@ -391,12 +398,20 @@ model Order {
   customer            Customer            @relation(fields: [customerId], references: [id])
   customerId          String
   status              OrderStatus         @default(PENDING)
+  // Every *Cents field of an order (and its items' unitPriceCents) is in MINOR UNITS OF `currency`
+  // (USD cents, SAR halalas, KWD/OMR/BHD fils/baisa = 3 decimals), the currency the buyer saw and paid.
   // subtotal - discount = totalCents (order value); totalCents - walletAppliedCents is charged by the gateway
   subtotalCents       Int                 @default(0)
   discountCents       Int                 @default(0)
   walletAppliedCents  Int                 @default(0)
   totalCents          Int
   currency            String              @default("USD")
+  // Units of `currency` per 1 USD used for this order's prices (1 for USD orders)
+  fxRate              Float               @default(1)
+  // USD equivalent of totalCents (USD cents): what revenue reports, referral rewards and "spent" sum
+  totalUsdCents       Int
+  // USD cents actually taken from the wallet (USD) for walletAppliedCents (same value for USD orders)
+  walletDebitUsdCents Int                 @default(0)
   coupon              Coupon?             @relation(fields: [couponId], references: [id], onDelete: SetNull)
   couponId            String?
   couponRedemption    CouponRedemption?
@@ -429,6 +444,7 @@ model OrderItem {
   variantLabel   String
   productType    ProductType
   quantity       Int             @default(1)
+  // Minor units of the order's currency (Order.currency)
   unitPriceCents Int
   // Units delivered from stock (codes / accounts)
   inventoryItems InventoryItem[]

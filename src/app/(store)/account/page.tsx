@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import type { OrderStatus, WalletTransactionType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { formatPrice } from "@/lib/format";
 import { orderPagePath, siteUrl } from "@/lib/email";
 import { getCheckoutOptions } from "@/lib/payments";
 import {
@@ -32,13 +31,14 @@ import Link from "@/components/store/link";
 import { LocalTime } from "@/components/store/local-time";
 import { ReferralCard, type ReferralCardData } from "@/components/store/referral-card";
 import { Pager, pageParam } from "@/components/store/pagination";
-import { WALLET_CURRENCY, firstParam } from "@/components/store/site";
+import { firstParam } from "@/components/store/site";
 import { type PaymentProviderOption, TopupForm } from "@/components/store/topup-form";
 import { EmptyState } from "@/components/store/ui";
 import { type Locale, localized, localizePath } from "@/i18n/config";
 import { type Dictionary, getDictionary, getLocale } from "@/i18n/server";
 import { signOutAction } from "../login/actions";
 import { getSignedInCustomer } from "../_lib/session";
+import { type ShopperMoney, getShopperMoney } from "../_lib/money";
 
 export const dynamic = "force-dynamic";
 
@@ -70,8 +70,8 @@ const txIcon: Record<WalletTransactionType, typeof IconWallet> = {
 };
 
 /** The referral rule in the shopper's language, e.g. "تحصل على 5% من قيمة أول طلب يدفعه صديقك…". */
-function referralRule(settings: Awaited<ReturnType<typeof getReferralSettings>>, t: Dictionary) {
-  const usd = (cents: number) => formatPrice(cents, WALLET_CURRENCY);
+function referralRule(settings: Awaited<ReturnType<typeof getReferralSettings>>, t: Dictionary, money: ShopperMoney) {
+  const usd = money.usd; // reward settings are USD cents, shown in the shopper's currency
   const percent = settings.rewardType === "PERCENT";
   return t.referral.rule({
     percent: percent ? settings.rewardValue : null,
@@ -84,7 +84,7 @@ function referralRule(settings: Awaited<ReturnType<typeof getReferralSettings>>,
 const shortId = (id: string) => id.slice(-8).toUpperCase();
 
 /** The "invite your friends" card. A failure here hides the card instead of breaking the page. */
-async function loadReferral(customerId: string, t: Dictionary, locale: Locale): Promise<ReferralCardData | null> {
+async function loadReferral(customerId: string, t: Dictionary, locale: Locale, money: ShopperMoney): Promise<ReferralCardData | null> {
   try {
     // Credits any reward whose order was fulfilled while the credit step failed
     await settleReferralRewards(customerId);
@@ -96,7 +96,7 @@ async function loadReferral(customerId: string, t: Dictionary, locale: Locale): 
     if (!settings.enabled && summary.invited === 0 && summary.earnedCents === 0) return null;
     return {
       link: settings.enabled ? `${siteUrl()}${localizePath("/", locale)}?ref=${code}` : null,
-      rule: referralRule(settings, t),
+      rule: referralRule(settings, t, money),
       ...summary,
     };
   } catch (err) {
@@ -120,7 +120,7 @@ async function loadCheckoutOptions(t: Dictionary): Promise<{ providers: PaymentP
 
 export default async function AccountPage({ searchParams }: Props) {
   const sp = await searchParams;
-  const [customer, t, locale] = await Promise.all([getSignedInCustomer(), getDictionary(), getLocale()]);
+  const [customer, t, locale, money] = await Promise.all([getSignedInCustomer(), getDictionary(), getLocale(), getShopperMoney()]);
   if (!customer) redirect(localizePath("/login?next=/account", locale));
 
   const topupReturn = firstParam(sp.topup);
@@ -165,7 +165,7 @@ export default async function AccountPage({ searchParams }: Props) {
         })
       : null,
     loadCheckoutOptions(t),
-    loadReferral(customer.id, t, locale),
+    loadReferral(customer.id, t, locale, money),
     prisma.ticket.count({ where: { ...mine, status: "ANSWERED" } }),
   ]);
 
@@ -223,7 +223,7 @@ export default async function AccountPage({ searchParams }: Props) {
       </header>
 
       {topupReturn === "ok" ? (
-        <TopupBanner topup={latestTopup} t={t} />
+        <TopupBanner topup={latestTopup} t={t} money={money} />
       ) : topupReturn === "cancelled" ? (
         <Banner tone="muted" icon={<IconAlert className="size-5" />} dismiss={t.account.hide}>
           <span className="font-bold">{t.account.topupCancelled}</span> {t.account.topupCancelledText}
@@ -245,7 +245,7 @@ export default async function AccountPage({ searchParams }: Props) {
             </h2>
           </div>
           <p dir="ltr" className="relative mt-5 text-end font-display text-4xl font-bold text-volt tabular-nums sm:text-5xl">
-            {formatPrice(balance, WALLET_CURRENCY)}
+            {money.usd(balance)}
           </p>
           <p className="relative mt-3 text-sm leading-7 text-muted">
             {t.account.walletHint}
@@ -271,7 +271,7 @@ export default async function AccountPage({ searchParams }: Props) {
             {t.account.topupTitle}
           </h2>
           <p className="mt-1 mb-5 text-sm text-muted">{t.account.topupText}</p>
-          <TopupForm providers={options.providers} devMode={options.devMode} currency={WALLET_CURRENCY} />
+          <TopupForm providers={options.providers} devMode={options.devMode} />
         </section>
       </div>
 
@@ -362,7 +362,7 @@ export default async function AccountPage({ searchParams }: Props) {
                     </span>
                     <span className="flex shrink-0 items-center gap-3">
                       <span dir="ltr" className="font-display text-base font-bold tabular-nums">
-                        {formatPrice(order.totalCents, order.currency)}
+                        {money.fixed(order.totalCents, order.currency)}
                       </span>
                       <span
                         aria-hidden="true"
@@ -444,13 +444,13 @@ export default async function AccountPage({ searchParams }: Props) {
                     <p className={`font-display text-base font-bold tabular-nums ${credit ? "text-success" : "text-danger"}`}>
                       <span dir="ltr">
                         {credit ? "+" : "−"}
-                        {formatPrice(Math.abs(tx.amountCents), WALLET_CURRENCY)}
+                        {money.usd(Math.abs(tx.amountCents))}
                       </span>
                     </p>
                     <p className="mt-0.5 text-[11px] text-muted">
                       {t.account.balance}{" "}
                       <span dir="ltr" className="font-display tabular-nums">
-                        {formatPrice(tx.balanceAfterCents, WALLET_CURRENCY)}
+                        {money.usd(tx.balanceAfterCents)}
                       </span>
                     </p>
                   </div>
@@ -511,16 +511,18 @@ function Banner({
 function TopupBanner({
   topup,
   t,
+  money,
 }: {
   topup: { status: "PENDING" | "PAID" | "FAILED"; amountCents: number; currency: string } | null;
   t: Dictionary;
+  money: ShopperMoney;
 }) {
   if (topup?.status === "PENDING") {
     return (
       <Banner tone="volt" icon={<IconClock className="size-5" />} extra={<AutoRefresh intervalMs={3000} maxMs={90_000} />}>
         <span className="font-bold">{t.account.topupPending}</span> {t.account.willAdd ? <>{t.account.willAdd} </> : null}
         <span dir="ltr" className="font-display font-bold">
-          {formatPrice(topup.amountCents, topup.currency)}
+          {money.fixed(topup.amountCents, topup.currency)}
         </span>{" "}
         {t.account.toBalanceSoon}
       </Banner>
@@ -540,7 +542,7 @@ function TopupBanner({
         <>
           {t.account.added ? <>{t.account.added} </> : null}
           <span dir="ltr" className="font-display font-bold">
-            {formatPrice(topup.amountCents, topup.currency)}
+            {money.fixed(topup.amountCents, topup.currency)}
           </span>{" "}
           {t.account.toWallet}
         </>

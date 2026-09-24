@@ -6,9 +6,8 @@ import { type ClientDictionary } from "@/i18n/ar/client";
 import { useLocale, useT } from "@/i18n/client";
 import { LOCALE_HEADER } from "@/i18n/config";
 import type { CartItem, CartLineInfo } from "@/lib/cart";
-import { formatPrice } from "@/lib/format";
+import { type Money, useMoney } from "./currency";
 import { useCart } from "./cart-provider";
-import { Approx, useApprox } from "./currency";
 import {
   IconAlert,
   IconBag,
@@ -27,7 +26,7 @@ import {
 } from "./icons";
 import Link from "./link";
 import { ProductMedia } from "./product-media";
-import { WALLET_CURRENCY, productHref } from "./site";
+import { productHref } from "./site";
 import type { PaymentProviderOption } from "./topup-form";
 import { EmptyState, TypeBadge } from "./ui";
 
@@ -63,7 +62,7 @@ export function CartView({
   const uid = useId();
   const t = useT();
   const locale = useLocale();
-  const approx = useApprox();
+  const money = useMoney();
   const [info, setInfo] = useState<LineInfoMap>({});
   const [loadError, setLoadError] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -128,10 +127,12 @@ export function CartView({
   const priced = rows.filter(
     (r): r is { item: CartItem; line: CartLineInfo } => !!r.line && r.line.maxQuantity > 0,
   );
+  // Local totals in the shopper's currency (unit price converted once, like checkout)
   const totals = new Map<string, number>();
   for (const { item, line } of priced) {
     const qty = Math.min(item.quantity, line.maxQuantity);
-    totals.set(line.currency, (totals.get(line.currency) ?? 0) + qty * line.unitPriceCents);
+    const unit = lineUnit(line, money);
+    totals.set(unit.currency, (totals.get(unit.currency) ?? 0) + qty * unit.minor);
   }
   const mixedCurrency = totals.size > 1;
   const units = priced.reduce((sum, { item, line }) => sum + Math.min(item.quantity, line.maxQuantity), 0);
@@ -144,14 +145,14 @@ export function CartView({
   // Server-side quote (coupon, wallet, amount due) for exactly what would be checked out.
   const walletOn = !!account && useWallet;
   const canQuote = !loading && !loadError && !blocked && !mixedCurrency && checkoutItems.length > 0;
-  const quoteKey = canQuote ? JSON.stringify([checkoutItems, appliedCoupon, walletOn]) : "";
+  const quoteKey = canQuote ? JSON.stringify([checkoutItems, appliedCoupon, walletOn, money.currency]) : "";
 
   useEffect(() => {
     if (!quoteKey) return;
     let cancelled = false;
     const timer = setTimeout(() => {
-      const [items, couponCode, wallet] = JSON.parse(quoteKey) as [CartItem[], string | null, boolean];
-      quoteCheckout({ items, couponCode: couponCode ?? undefined, useWallet: wallet }).then(
+      const [items, couponCode, wallet, currency] = JSON.parse(quoteKey) as [CartItem[], string | null, boolean, string];
+      quoteCheckout({ items, couponCode: couponCode ?? undefined, useWallet: wallet, currency }).then(
         (result) => {
           if (!cancelled) setQuote({ key: quoteKey, result });
         },
@@ -206,9 +207,10 @@ export function CartView({
     : null;
   const couponError = appliedCoupon && q?.couponError ? q.couponError : null;
   const couponValid = !!(appliedCoupon && q?.coupon);
-  const walletBalance = q?.walletBalanceCents ?? account?.walletBalanceCents ?? 0;
+  // In the shopper's currency: the quote's (server-converted) balance, else the USD balance converted
+  const walletBalance = q?.walletBalanceCents ?? (account ? money.convert(account.walletBalanceCents) : 0);
   const showWallet = !!account && walletBalance > 0;
-  const currency = q?.currency ?? [...totals.keys()][0] ?? "USD";
+  const currency = q?.currency ?? [...totals.keys()][0] ?? money.currency;
   const amountDue = q ? q.amountDueCents : null;
   const paidInFull = amountDue === 0;
   const showProviders = providers.length > 1 && !paidInFull;
@@ -251,6 +253,8 @@ export function CartView({
           ...(couponCode ? { couponCode } : {}),
           ...(walletOn ? { useWallet: true } : {}),
           ...(provider && !paidInFull ? { provider } : {}),
+          // Charged in exactly the currency shown (the server re-validates it and uses its own rates)
+          currency,
         }),
       });
       const data: unknown = await res.json().catch(() => null);
@@ -277,12 +281,11 @@ export function CartView({
     setSubmitting(false);
   }
 
-  const money = (cents: number) => formatPrice(cents, currency);
+  const fmt = (cents: number) => money.format(cents, currency);
   const pending = <span className="inline-block h-5 w-16 animate-pulse rounded bg-surface-2 align-middle" />;
   const localSubtotal = totals.get(currency) ?? 0;
-  // What the gateway will charge, in USD; shown whenever a local display currency is selected.
-  const chargeCents = amountDue ?? (mixedCurrency ? null : localSubtotal);
-  const showUsdNote = chargeCents !== null && chargeCents > 0 && approx(chargeCents, currency) !== null;
+  // Outside USD, state the exact amount the gateway will charge in that currency.
+  const showChargeNote = amountDue !== null && amountDue > 0 && currency !== "USD";
 
   return (
     <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
@@ -414,7 +417,7 @@ export function CartView({
                 <span className="block text-xs text-muted">
                   {t.cart.available}{" "}
                   <span dir="ltr" className="font-display font-bold text-text tabular-nums">
-                    {formatPrice(walletBalance, WALLET_CURRENCY)}
+                    {fmt(walletBalance)}
                   </span>
                 </span>
               </span>
@@ -445,7 +448,7 @@ export function CartView({
             <div className="flex items-center justify-between">
               <dt className="text-muted">{t.cart.subtotal}</dt>
               <dd dir="ltr" className="font-display font-bold tabular-nums">
-                {loading ? pending : money(q?.subtotalCents ?? localSubtotal)}
+                {loading ? pending : fmt(q?.subtotalCents ?? localSubtotal)}
               </dd>
             </div>
           )}
@@ -464,7 +467,7 @@ export function CartView({
               </dt>
               <dd dir="ltr" className="font-display font-bold tabular-nums">
                 {"\u2212"}
-                {money(q.discountCents)}
+                {fmt(q.discountCents)}
               </dd>
             </div>
           ) : null}
@@ -473,7 +476,7 @@ export function CartView({
               <dt>{t.cart.fromWallet}</dt>
               <dd dir="ltr" className="font-display font-bold tabular-nums">
                 {"\u2212"}
-                {money(q.walletAppliedCents)}
+                {fmt(q.walletAppliedCents)}
               </dd>
             </div>
           ) : null}
@@ -487,16 +490,13 @@ export function CartView({
               ) : mixedCurrency || amountDue === null ? (
                 [...totals].map(([cur, cents]) => (
                   <span key={cur} dir="ltr" className="block font-display text-2xl font-bold text-volt tabular-nums">
-                    {formatPrice(cents, cur)}
+                    {money.format(cents, cur)}
                   </span>
                 ))
               ) : (
-                <>
-                  <span dir="ltr" className="block font-display text-2xl font-bold text-volt tabular-nums">
-                    {money(amountDue)}
-                  </span>
-                  <Approx cents={amountDue} currency={currency} className="block text-sm" />
-                </>
+                <span dir="ltr" className="block font-display text-2xl font-bold text-volt tabular-nums">
+                  {fmt(amountDue)}
+                </span>
               )}
             </dd>
           </div>
@@ -619,10 +619,15 @@ export function CartView({
             )}
           </button>
 
-          {showUsdNote && chargeCents !== null ? (
+          {showChargeNote && amountDue !== null ? (
             <p className="flex items-start gap-2 rounded-lg border border-border bg-surface-2 p-3 text-xs leading-6 text-muted">
               <IconCard className="mt-1 size-3.5 shrink-0 text-volt" />
-              <span>{t.cart.chargedInUsd(formatPrice(chargeCents, currency))}</span>
+              <span>
+                {t.cart.chargedExactly(currency)}{" "}
+                <bdi dir="ltr" className="font-display font-bold text-text tabular-nums">
+                  {fmt(amountDue)}
+                </bdi>
+              </span>
             </p>
           ) : null}
 
@@ -653,6 +658,13 @@ export function CartView({
   );
 }
 
+/** A cart line's unit price in the shopper's currency (USD catalog prices are converted; others shown as is). */
+function lineUnit(line: CartLineInfo, money: Money): { minor: number; currency: string } {
+  return line.currency.toUpperCase() === "USD"
+    ? { minor: money.convert(line.unitPriceCents), currency: money.currency }
+    : { minor: line.unitPriceCents, currency: line.currency };
+}
+
 function Notice({ children }: { children: React.ReactNode }) {
   return (
     <p className="flex items-start gap-2 rounded-lg border border-volt/30 bg-volt/10 p-3 text-sm text-volt">
@@ -675,6 +687,8 @@ function CartLine({
   onChange: (quantity: number) => void;
   onRemove: () => void;
 }) {
+  const money = useMoney();
+  const unit = lineUnit(line, money);
   const soldOut = line.maxQuantity === 0;
   const qty = soldOut ? 0 : Math.min(item.quantity, line.maxQuantity);
   const atMax = !soldOut && qty >= line.maxQuantity;
@@ -704,9 +718,8 @@ function CartLine({
               <span>{line.variantLabel}</span>
               <span aria-hidden="true">·</span>
               <span dir="ltr" className="font-display tabular-nums">
-                {formatPrice(line.unitPriceCents, line.currency)}
+                {money.format(unit.minor, unit.currency)}
               </span>
-              <Approx cents={line.unitPriceCents} currency={line.currency} />
             </div>
           </div>
           <button
@@ -757,7 +770,7 @@ function CartLine({
             </div>
           )}
           <span dir="ltr" className="font-display text-base font-bold tabular-nums">
-            {formatPrice(qty * line.unitPriceCents, line.currency)}
+            {money.format(qty * unit.minor, unit.currency)}
           </span>
         </div>
       </div>
