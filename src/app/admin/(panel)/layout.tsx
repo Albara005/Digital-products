@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { prisma } from "@/lib/prisma";
 import { AdminNav } from "@/components/admin/AdminNav";
-import { requireAdminAccess } from "../_lib/guard";
+import { TwoFactorBanner } from "@/components/admin/TwoFactorBanner";
+import { isTwoFactorRequired, requireAdminAccess } from "../_lib/guard";
 import { logoutAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,9 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminPanelLayout({ children }: { children: ReactNode }) {
-  const admin = await requireAdminAccess();
+  // Pages and actions enforce REQUIRE_ADMIN_2FA themselves; the layout also wraps /admin/account,
+  // where 2FA is set up, so it must not redirect.
+  const admin = await requireAdminAccess(undefined, { allowWithoutTwoFactor: true });
   const awaitingDelivery = await prisma.order.count({ where: { status: "PAID" } });
 
   return (
@@ -24,7 +27,10 @@ export default async function AdminPanelLayout({ children }: { children: ReactNo
         logoutAction={logoutAction}
       />
       <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-        <div className="mx-auto w-full max-w-7xl">{children}</div>
+        <div className="mx-auto w-full max-w-7xl">
+          {!admin.twoFactorEnabled && <TwoFactorBanner required={isTwoFactorRequired()} />}
+          {children}
+        </div>
       </main>
     </div>
   );

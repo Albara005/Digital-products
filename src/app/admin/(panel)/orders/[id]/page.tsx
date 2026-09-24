@@ -2,47 +2,29 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
+import type { PaymentProvider } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { decrypt } from "@/lib/crypto";
 import { formatDate, formatPrice } from "@/lib/format";
 import { ActionButton } from "@/components/admin/ActionButton";
 import { CopyButton } from "@/components/admin/CopyButton";
 import { ManualDeliveryForm } from "@/components/admin/ManualDeliveryForm";
-import { CheckIcon, ExternalIcon, RefreshIcon, UndoIcon } from "@/components/admin/icons";
+import { RefundButton, type RefundOption } from "@/components/admin/RefundButton";
+import { RevealPayload } from "@/components/admin/RevealPayload";
+import { CheckIcon, ExternalIcon, RefreshIcon } from "@/components/admin/icons";
 import { Callout, OrderStatusBadge, PageHeader, ProductTypeBadge, shortId } from "@/components/admin/ui";
 import { requireAdminAccess } from "../../../_lib/guard";
-import { deliverItemManually, markOrderRefunded, retryAutoDelivery } from "./actions";
+import { revealInventoryItem } from "../../products/[id]/inventory/actions";
+import { deliverItemManually, refundOrder, retryAutoDelivery, revealDeliveryNote } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "تفاصيل الطلب" };
 
-function reveal(payload: string): { ok: true; value: string } | { ok: false } {
-  try {
-    return { ok: true, value: decrypt(payload) };
-  } catch {
-    return { ok: false };
-  }
-}
-
-function Secret({ payload, label, note = false }: { payload: string; label?: string; note?: boolean }) {
-  const r = reveal(payload);
-  if (!r.ok) {
-    return <p className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">تعذّر فك التشفير — تحقق من INVENTORY_ENCRYPTION_KEY.</p>;
-  }
-  return (
-    <div className="flex items-start gap-2">
-      <pre
-        dir="auto"
-        className={`min-w-0 flex-1 whitespace-pre-wrap break-all rounded-md border border-border bg-bg px-3 py-2 text-start leading-relaxed text-text ${
-          note ? "font-sans text-sm" : "font-mono text-xs"
-        }`}
-      >
-        {r.value}
-      </pre>
-      <CopyButton text={r.value} label={label ?? "نسخ"} />
-    </div>
-  );
-}
+const providerLabel: Record<PaymentProvider, string> = {
+  STRIPE: "Stripe",
+  TAP: "Tap",
+  WALLET: "محفظة العميل",
+  DEV: "وضع التطوير (بدون دفع فعلي)",
+};
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -63,12 +45,19 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
       id: true,
       accessToken: true,
       status: true,
+      subtotalCents: true,
+      discountCents: true,
+      walletAppliedCents: true,
       totalCents: true,
       currency: true,
+      paymentProvider: true,
+      coupon: { select: { code: true } },
       stripeSessionId: true,
       stripePaymentIntent: true,
+      tapChargeId: true,
       paidAt: true,
       fulfilledAt: true,
+      refundedAt: true,
       createdAt: true,
       updatedAt: true,
       customer: { select: { email: true, name: true, createdAt: true, _count: { select: { orders: true } } } },
@@ -86,7 +75,7 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
           variant: { select: { productId: true } },
           inventoryItems: {
             orderBy: [{ soldAt: "asc" }, { createdAt: "asc" }],
-            select: { id: true, payload: true, status: true },
+            select: { id: true, status: true },
           },
         },
       },
@@ -99,6 +88,35 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
   const undelivered = order.items.filter((i) => !i.deliveredAt);
   const canRetry = order.status === "PAID" && undelivered.some((i) => i.productType !== "SERVICE");
   const canRefund = order.status === "PAID" || order.status === "FULFILLED";
+
+  // Mirrors refundOrderPayment(): ORIGINAL sends the gateway-charged part back through Stripe/Tap and the
+  // wallet-paid part back to the wallet; WALLET credits the whole order value to the wallet.
+  const provider: PaymentProvider =
+    order.paymentProvider ?? (order.tapChargeId ? "TAP" : order.stripeSessionId || order.stripePaymentIntent ? "STRIPE" : "DEV");
+  const money = (cents: number) => formatPrice(cents, order.currency);
+  const gatewayCents = provider === "WALLET" ? 0 : Math.max(0, order.totalCents - order.walletAppliedCents);
+  const refundOptions: RefundOption[] = [
+    {
+      method: "ORIGINAL",
+      title: "استرجاع إلى وسيلة الدفع الأصلية",
+      amount: money(gatewayCents + order.walletAppliedCents),
+      note:
+        provider === "DEV"
+          ? "طلب وضع التطوير: لا توجد عملية دفع فعلية لإرجاعها."
+          : [
+              gatewayCents > 0 ? `${money(gatewayCents)} عبر ${providerLabel[provider]}` : null,
+              order.walletAppliedCents > 0 ? `${money(order.walletAppliedCents)} إلى المحفظة (دُفع منها)` : null,
+            ]
+              .filter(Boolean)
+              .join(" + "),
+    },
+    {
+      method: "WALLET",
+      title: "إضافة المبلغ لرصيد محفظة العميل",
+      amount: money(order.totalCents),
+      note: "رصيد يستخدمه العميل في مشترياته القادمة، دون المرور ببوابة الدفع.",
+    },
+  ];
 
   return (
     <>
@@ -175,7 +193,7 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
                               {u.status !== "SOLD" && ` · ${u.status === "RESERVED" ? "محجوز" : "متاح"}`}
                             </span>
                           )}
-                          <Secret payload={u.payload} />
+                          <RevealPayload id={u.id} reveal={revealInventoryItem} />
                         </div>
                       ))}
                     </div>
@@ -184,7 +202,7 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
                   {item.deliveryNote && (
                     <div className="flex flex-col gap-2">
                       <p className="text-xs font-medium text-muted">نص التسليم اليدوي</p>
-                      <Secret payload={item.deliveryNote} note />
+                      <RevealPayload id={item.id} reveal={revealDeliveryNote} />
                     </div>
                   )}
 
@@ -224,31 +242,19 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
                   إعادة التسليم التلقائي
                 </ActionButton>
               )}
-              {canRefund && (
-                <ActionButton
-                  action={markOrderRefunded}
-                  fields={{ orderId: order.id }}
-                  variant="danger"
-                  confirm={{
-                    title: "تسجيل الطلب كمسترجع؟",
-                    body: (
-                      <>
-                        ستتغير حالة الطلب إلى <strong className="text-text">مسترجع</strong>، وتعود أي وحدات محجوزة غير مسلّمة إلى المخزون.
-                        <br />
-                        هذا الإجراء <strong className="text-text">لا يعيد المال</strong> — نفّذ الاسترجاع المالي من لوحة Stripe.
-                      </>
-                    ),
-                    confirmLabel: "تأكيد الاسترجاع",
-                  }}
-                >
-                  <UndoIcon className="size-3.5" />
-                  تسجيل كمسترجع
-                </ActionButton>
+              {(canRefund || order.status === "REFUNDED") && (
+                <RefundButton
+                  action={refundOrder}
+                  orderId={order.id}
+                  total={money(order.totalCents)}
+                  options={refundOptions}
+                  canRefund={canRefund}
+                />
               )}
               {!canRetry && !canRefund && (
                 <p className="text-sm text-muted">
                   {order.status === "REFUNDED"
-                    ? "الطلب مسجّل كمسترجع. لا توجد إجراءات أخرى."
+                    ? `تم استرجاع الطلب${order.refundedAt ? ` ${formatDate(order.refundedAt)}` : ""}. التفاصيل في سجل النشاط.`
                     : order.status === "PENDING"
                       ? "بانتظار إتمام الدفع — لا يمكن التسليم قبل تأكيده."
                       : order.status === "FAILED"
@@ -281,15 +287,41 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
               الملخص
             </h2>
             <dl className="divide-y divide-border">
+              {order.subtotalCents > 0 && order.subtotalCents !== order.totalCents && (
+                <Row label="المجموع الفرعي">
+                  <span className="font-display">{money(order.subtotalCents)}</span>
+                </Row>
+              )}
+              {order.discountCents > 0 && (
+                <Row label="الخصم">
+                  <span className="flex flex-wrap items-center justify-end gap-2">
+                    {order.coupon && (
+                      <span className="badge bg-surface-2 font-mono text-text ring-1 ring-border" dir="ltr">
+                        {order.coupon.code}
+                      </span>
+                    )}
+                    <span className="font-display text-success" dir="ltr">
+                      −{money(order.discountCents)}
+                    </span>
+                  </span>
+                </Row>
+              )}
               <Row label="الإجمالي">
-                <span className="font-display text-base font-bold">{formatPrice(order.totalCents, order.currency)}</span>
+                <span className="font-display text-base font-bold">{money(order.totalCents)}</span>
               </Row>
+              {order.walletAppliedCents > 0 && (
+                <Row label="مدفوع من المحفظة">
+                  <span className="font-display">{money(order.walletAppliedCents)}</span>
+                </Row>
+              )}
+              {order.paymentProvider && <Row label="وسيلة الدفع">{providerLabel[order.paymentProvider]}</Row>}
               <Row label="الحالة">
                 <OrderStatusBadge status={order.status} />
               </Row>
               <Row label="تاريخ الإنشاء">{formatDate(order.createdAt)}</Row>
               <Row label="تاريخ الدفع">{order.paidAt ? formatDate(order.paidAt) : "—"}</Row>
               <Row label="تاريخ التسليم">{order.fulfilledAt ? formatDate(order.fulfilledAt) : "—"}</Row>
+              {order.refundedAt && <Row label="تاريخ الاسترجاع">{formatDate(order.refundedAt)}</Row>}
               <Row label="آخر تحديث">{formatDate(order.updatedAt)}</Row>
               <Row label="رقم الطلب">
                 <span className="break-all font-mono text-xs" dir="ltr">
@@ -300,6 +332,13 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/orde
                 <Row label="Stripe">
                   <span className="break-all font-mono text-xs" dir="ltr">
                     {order.stripePaymentIntent}
+                  </span>
+                </Row>
+              )}
+              {order.tapChargeId && (
+                <Row label="Tap">
+                  <span className="break-all font-mono text-xs" dir="ltr">
+                    {order.tapChargeId}
                   </span>
                 </Row>
               )}

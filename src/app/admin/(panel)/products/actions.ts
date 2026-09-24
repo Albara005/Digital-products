@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { ProductType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { audit } from "@/lib/audit";
 import { slugify } from "@/lib/format";
 import type { FormState } from "../../_lib/form-state";
 import { requireAdminAccess } from "../../_lib/guard";
@@ -87,8 +88,14 @@ function parseVariants(raw: string): unknown {
   }
 }
 
+type VariantChanges = {
+  added: { label: string; priceCents: number }[];
+  removed: { id: string; label: string }[];
+  updated: { id: string; label: string; from: { label: string; priceCents: number }; to: { label: string; priceCents: number } }[];
+};
+
 export async function saveProduct(_prev: FormState, formData: FormData): Promise<FormState> {
-  await requireAdminAccess();
+  const session = await requireAdminAccess();
 
   const parsed = productSchema.safeParse({
     id: str(formData, "id") || undefined,
@@ -125,6 +132,7 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
   };
 
   let productId: string;
+  const variantChanges: VariantChanges = { added: [], removed: [], updated: [] };
   try {
     productId = await prisma.$transaction(async (tx) => {
       if (!input.id) {
@@ -145,6 +153,7 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
         select: {
           id: true,
           label: true,
+          priceCents: true,
           _count: {
             select: {
               orderItems: true,
@@ -181,11 +190,23 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
 
       await tx.product.update({ where: { id: input.id }, data: productData });
       if (removed.length) await tx.productVariant.deleteMany({ where: { id: { in: removed.map((v) => v.id) } } });
+      const before = new Map(existing.map((v) => [v.id, v]));
       for (const v of input.variants) {
         const data = { label: v.label, priceCents: v.price, sortOrder: v.sortOrder };
         if (v.id) await tx.productVariant.update({ where: { id: v.id }, data });
         else await tx.productVariant.create({ data: { ...data, productId: input.id } });
+        const old = v.id ? before.get(v.id) : undefined;
+        if (!old) variantChanges.added.push({ label: v.label, priceCents: v.price });
+        else if (old.label !== v.label || old.priceCents !== v.price) {
+          variantChanges.updated.push({
+            id: old.id,
+            label: v.label,
+            from: { label: old.label, priceCents: old.priceCents },
+            to: { label: v.label, priceCents: v.price },
+          });
+        }
       }
+      variantChanges.removed = removed.map((v) => ({ id: v.id, label: v.label }));
       return input.id;
     });
   } catch (e) {
@@ -196,19 +217,41 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
     throw e;
   }
 
+  const who = { adminId: session.adminId, email: session.email };
+  const target = { type: "product", id: productId };
+  if (!input.id) {
+    await audit(who, "product.create", target, {
+      name: input.name,
+      slug,
+      type: input.type,
+      variants: input.variants.map((v) => ({ label: v.label, priceCents: v.price })),
+    });
+  } else {
+    await audit(who, "product.update", target, { name: input.name, slug, active: input.active, featured: input.featured });
+    const { added, removed, updated } = variantChanges;
+    if (added.length || removed.length || updated.length) {
+      await audit(who, "product.variants_update", target, { added, removed, updated });
+    }
+  }
+
   revalidatePath("/", "layout");
   if (!input.id) redirect(`/admin/products/${productId}?created=1`);
   return ok("تم حفظ التغييرات.");
 }
 
 export async function deleteProduct(_prev: FormState, formData: FormData): Promise<FormState> {
-  await requireAdminAccess();
+  const session = await requireAdminAccess();
   const parsed = idSchema.safeParse(str(formData, "id"));
   if (!parsed.success) return fromZod(parsed.error);
 
   const product = await prisma.product.findUnique({
     where: { id: parsed.data },
-    select: { id: true, variants: { select: { _count: { select: { orderItems: true, inventoryItems: true } } } } },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      variants: { select: { _count: { select: { orderItems: true, inventoryItems: true } } } },
+    },
   });
   if (!product) return fail("المنتج غير موجود.");
   const orders = product.variants.reduce((s, v) => s + v._count.orderItems, 0);
@@ -217,6 +260,10 @@ export async function deleteProduct(_prev: FormState, formData: FormData): Promi
   if (stock > 0) return fail(`يحتوي المنتج على ${stock} عنصر مخزون. احذف المخزون أولاً أو عطّل المنتج.`);
 
   await prisma.product.delete({ where: { id: product.id } });
+  await audit({ adminId: session.adminId, email: session.email }, "product.delete", { type: "product", id: product.id }, {
+    name: product.name,
+    slug: product.slug,
+  });
   revalidatePath("/", "layout");
   redirect("/admin/products");
 }

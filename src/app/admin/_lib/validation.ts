@@ -51,6 +51,11 @@ export function isNotFound(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025";
 }
 
+/** Serializable transaction lost a race with a concurrent one (e.g. two super admins demoting each other). */
+export function isSerializationFailure(e: unknown): boolean {
+  return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2034";
+}
+
 export function isForeignKeyViolation(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003";
 }

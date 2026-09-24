@@ -2,6 +2,9 @@
 
 export const SITE_NAME = "Nitro Store";
 
+/** The wallet holds a single currency (top-ups and wallet payments are in USD). */
+export const WALLET_CURRENCY = "USD";
+
 export const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "support@nitro.store";
 
 // Placeholder until the owner sets NEXT_PUBLIC_WHATSAPP_NUMBER (international format, digits only).
@@ -57,4 +60,50 @@ export function initials(name: string) {
 export function truncate(text: string, max: number) {
   const clean = text.replace(/\s+/g, " ").trim();
   return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
+}
+
+function hasControlChars(value: string) {
+  for (let i = 0; i < value.length; i++) {
+    const c = value.charCodeAt(i);
+    if (c < 0x20 || c === 0x7f) return true;
+  }
+  return false;
+}
+
+/**
+ * Where to send the customer after signing in. Only same-site relative paths are allowed
+ * ("/cart", "/order/x?token=…"); anything else — absolute or protocol-relative URLs, backslash
+ * tricks, control characters, the login page itself — falls back to `fallback`.
+ */
+export function safeNextPath(raw: string | null | undefined, fallback = "/account"): string {
+  if (!raw || raw.length > 512) return fallback;
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\") || hasControlChars(raw)) return fallback;
+  try {
+    const base = "http://nitro.invalid";
+    const url = new URL(raw, base);
+    if (url.origin !== base) return fallback;
+    if (url.pathname === "/login" || url.pathname.startsWith("/login/")) return fallback;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return fallback;
+  }
+}
+
+export const MAX_REVIEW_COMMENT = 1000;
+export const MAX_REVIEW_NAME = 40;
+
+/** Public reviewer name derived from an email: "ahmed@x.com" → "ahm***". */
+export function maskedDisplayName(email: string): string {
+  const local = Array.from(email.split("@")[0]?.trim() ?? "");
+  if (local.length === 0) return "عميل";
+  const keep = local.length <= 3 ? 1 : 3;
+  return `${local.slice(0, keep).join("")}***`;
+}
+
+/** Arabic-Indic and Persian digits → Latin, then drops everything that isn't a digit. */
+export function latinDigits(value: string): string {
+  return value
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06f0-\u06f9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/\D/g, "");
 }

@@ -3,8 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { encrypt } from "@/lib/crypto";
+import { audit } from "@/lib/audit";
+import { decrypt, encrypt } from "@/lib/crypto";
+import { formatPrice } from "@/lib/format";
 import { fulfillOrder, refreshOrderStatus } from "@/lib/fulfillment";
+import { refundOrderPayment } from "@/lib/payments";
 import type { FormState } from "../../../_lib/form-state";
 import { requireAdminAccess } from "../../../_lib/guard";
 import { fail, fromZod, idSchema, ok, str } from "../../../_lib/validation";
@@ -21,7 +24,7 @@ const deliverSchema = z.object({
 
 /** Manual delivery for SERVICE items or stock shortfalls: stores an encrypted note and marks the item delivered. */
 export async function deliverItemManually(_prev: FormState, formData: FormData): Promise<FormState> {
-  await requireAdminAccess();
+  const session = await requireAdminAccess();
   const parsed = deliverSchema.safeParse({
     orderId: str(formData, "orderId"),
     itemId: str(formData, "itemId"),
@@ -44,6 +47,8 @@ export async function deliverItemManually(_prev: FormState, formData: FormData):
     data: { deliveryNote: encrypt(note), deliveredAt: new Date() },
   });
   if (res.count === 0) return fail("تم تسليم هذا العنصر للتو من مستخدم آخر.");
+  // The delivered text is customer content (often credentials): never in the audit log
+  await audit({ adminId: session.adminId, email: session.email }, "order.deliver_manual", { type: "order", id: orderId }, { itemId });
 
   try {
     await refreshOrderStatus(orderId);
@@ -57,7 +62,7 @@ export async function deliverItemManually(_prev: FormState, formData: FormData):
 }
 
 export async function retryAutoDelivery(_prev: FormState, formData: FormData): Promise<FormState> {
-  await requireAdminAccess();
+  const session = await requireAdminAccess();
   const parsed = idSchema.safeParse(str(formData, "orderId"));
   if (!parsed.success) return fromZod(parsed.error);
   const orderId = parsed.data;
@@ -75,6 +80,9 @@ export async function retryAutoDelivery(_prev: FormState, formData: FormData): P
   }
 
   const pending = await prisma.orderItem.count({ where: { orderId, deliveredAt: null } });
+  await audit({ adminId: session.adminId, email: session.email }, "order.retry_delivery", { type: "order", id: orderId }, {
+    undeliveredAfter: pending,
+  });
   revalidatePath("/admin", "layout");
   return ok(
     pending === 0
@@ -83,27 +91,51 @@ export async function retryAutoDelivery(_prev: FormState, formData: FormData): P
   );
 }
 
-export async function markOrderRefunded(_prev: FormState, formData: FormData): Promise<FormState> {
-  await requireAdminAccess();
-  const parsed = idSchema.safeParse(str(formData, "orderId"));
+const refundSchema = z.object({
+  orderId: idSchema,
+  method: z.enum(["ORIGINAL", "WALLET"], "اختر طريقة الاسترجاع"),
+});
+
+/**
+ * Refunds the money (gateway refund or wallet credit), marks the order REFUNDED and releases reserved
+ * stock, all inside refundOrderPayment, which also writes the "order.refund" audit row.
+ */
+export async function refundOrder(_prev: FormState, formData: FormData): Promise<FormState> {
+  const session = await requireAdminAccess();
+  const parsed = refundSchema.safeParse({ orderId: str(formData, "orderId"), method: str(formData, "method") });
   if (!parsed.success) return fromZod(parsed.error);
-  const orderId = parsed.data;
+  const { orderId, method } = parsed.data;
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const res = await tx.order.updateMany({
-      where: { id: orderId, status: { in: ["PAID", "FULFILLED"] } },
-      data: { status: "REFUNDED" },
-    });
-    if (res.count === 0) return false;
-    // Units held for this order but never delivered go back on sale; SOLD units stay with the order.
-    await tx.inventoryItem.updateMany({
-      where: { status: "RESERVED", orderItem: { orderId } },
-      data: { status: "AVAILABLE", orderItemId: null },
-    });
-    return true;
-  });
-  if (!updated) return fail("يمكن تسجيل الاسترجاع للطلبات المدفوعة أو المسلّمة فقط.");
-
+  const result = await refundOrderPayment(orderId, { method, actor: { adminId: session.adminId, email: session.email } });
   revalidatePath("/", "layout");
-  return ok("تم تسجيل الطلب كمسترجع.");
+  if (!result.ok) return fail(result.error);
+
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { currency: true, walletAppliedCents: true } });
+  const amount = formatPrice(result.refundedCents, order?.currency);
+  if (method === "WALLET") return ok(`تم الاسترجاع: أُضيف ${amount} إلى رصيد محفظة العميل.`);
+  return ok(
+    `تم استرجاع ${amount}${order?.walletAppliedCents ? "؛ الجزء المدفوع من المحفظة عاد إلى رصيد العميل والباقي إلى وسيلة الدفع الأصلية." : " إلى وسيلة الدفع الأصلية."}`,
+  );
+}
+
+/** Decrypts a manual-delivery note for display. Sensitive: audited (ids only, never the text). */
+export async function revealDeliveryNote(
+  itemId: string,
+): Promise<{ ok: true; value: string } | { ok: false; message: string }> {
+  const session = await requireAdminAccess();
+  const parsed = idSchema.safeParse(itemId);
+  if (!parsed.success) return { ok: false, message: "معرّف غير صالح" };
+
+  const item = await prisma.orderItem.findUnique({ where: { id: parsed.data }, select: { orderId: true, deliveryNote: true } });
+  if (!item?.deliveryNote) return { ok: false, message: "لا يوجد نص تسليم" };
+  let value: string;
+  try {
+    value = decrypt(item.deliveryNote);
+  } catch {
+    return { ok: false, message: "تعذّر فك التشفير — تحقق من مفتاح التشفير" };
+  }
+  await audit({ adminId: session.adminId, email: session.email }, "order.reveal_note", { type: "order", id: item.orderId }, {
+    itemId: parsed.data,
+  });
+  return { ok: true, value };
 }

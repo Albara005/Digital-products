@@ -4,6 +4,7 @@
  * - Creates the four categories and sample products if they are missing (existing rows are left as-is,
  *   so admin edits survive re-runs). Set SEED_SAMPLE_PRODUCTS=false to skip the sample catalogue.
  * - Adds obviously fake DEMO stock only to stock variants that have never had any stock.
+ * - Creates the sample coupon WELCOME10 (10%, max $5 off) if no coupon with that code exists.
  *
  * Runs outside Next.js, so it cannot import src/lib/crypto.ts or src/lib/auth.ts (both are
  * "server-only"). The encryption below mirrors the v1 format of src/lib/crypto.ts exactly and
@@ -256,9 +257,25 @@ async function seedCatalogue() {
   console.log(`= ${products.length} sample products ready; ${stockAdded} demo stock units added`);
 }
 
+async function seedCoupons() {
+  // create-only: an admin's later edits (or deactivation) survive re-runs
+  const existing = await prisma.coupon.findUnique({ where: { code: "WELCOME10" }, select: { id: true } });
+  if (existing) {
+    console.log("= Coupon WELCOME10 already exists (left unchanged)");
+    return;
+  }
+  await prisma.coupon.upsert({
+    where: { code: "WELCOME10" },
+    create: { code: "WELCOME10", type: "PERCENT", value: 10, maxDiscountCents: 500, active: true },
+    update: {},
+  });
+  console.log("+ Created coupon WELCOME10 (10%, max $5.00 off)");
+}
+
 async function main() {
   await seedAdmin();
   await seedCatalogue();
+  await seedCoupons();
 }
 
 main()

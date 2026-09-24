@@ -1,8 +1,7 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { OrderStatus, ProductType } from "@prisma/client";
+import type { OrderStatus, ProductType, ReviewStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/crypto";
 import { formatPrice, orderStatusLabel } from "@/lib/format";
@@ -10,8 +9,11 @@ import { AutoRefresh } from "@/components/store/auto-refresh";
 import { CopyButton } from "@/components/store/copy-button";
 import { IconAlert, IconBookmark, IconCheck, IconClock, IconShieldCheck, IconSpinner } from "@/components/store/icons";
 import { LocalTime } from "@/components/store/local-time";
-import { firstParam, formatWarranty } from "@/components/store/site";
+import { ReviewForm } from "@/components/store/review-form";
+import { firstParam, formatWarranty, maskedDisplayName, productHref } from "@/components/store/site";
+import { Stars } from "@/components/store/stars";
 import { TypeBadge } from "@/components/store/ui";
+import { isPlausibleOrderRef, tokenMatches } from "../../_lib/order-access";
 
 export const dynamic = "force-dynamic";
 
@@ -27,26 +29,21 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const ORDER_ID = /^[A-Za-z0-9_-]{1,64}$/;
-
-/** Constant-time token check; hashing first gives equal-length buffers whatever the input. */
-function tokenMatches(provided: string, expected: string) {
-  const a = createHash("sha256").update(provided, "utf8").digest();
-  const b = createHash("sha256").update(expected, "utf8").digest();
-  return timingSafeEqual(a, b);
-}
-
 async function loadVerifiedOrder(id: string, token: string | undefined) {
-  if (!token || token.length > 256 || !ORDER_ID.test(id)) return null;
+  if (!isPlausibleOrderRef(id, token)) return null;
   const order = await prisma.order.findUnique({
     where: { id },
     select: {
       id: true,
       accessToken: true,
       status: true,
+      subtotalCents: true,
+      discountCents: true,
+      walletAppliedCents: true,
       totalCents: true,
       currency: true,
       createdAt: true,
+      coupon: { select: { code: true } },
       customer: { select: { email: true } },
       items: {
         orderBy: { id: "asc" },
@@ -59,7 +56,8 @@ async function loadVerifiedOrder(id: string, token: string | undefined) {
           unitPriceCents: true,
           deliveryNote: true,
           deliveredAt: true,
-          variant: { select: { product: { select: { warrantyHours: true } } } },
+          variant: { select: { product: { select: { warrantyHours: true, slug: true, active: true } } } },
+          review: { select: { rating: true, status: true } },
           // Units are linked as RESERVED at checkout; only SOLD (delivered) units may be revealed.
           inventoryItems: {
             where: { status: "SOLD" },
@@ -122,16 +120,29 @@ const statusCopy: Record<OrderStatus, { title: string; text: string; tone: strin
   },
 };
 
+const reviewStatusCopy: Record<ReviewStatus, { label: string; tone: string }> = {
+  PENDING: { label: "بانتظار المراجعة", tone: "bg-volt/10 text-volt" },
+  APPROVED: { label: "منشور", tone: "bg-success/15 text-success" },
+  REJECTED: { label: "غير منشور", tone: "bg-surface-2 text-muted" },
+};
+
 export default async function OrderPage({ params, searchParams }: Props) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
-  const order = await loadVerifiedOrder(id, firstParam(query.token));
-  if (!order) notFound();
+  const token = firstParam(query.token);
+  const order = await loadVerifiedOrder(id, token);
+  if (!order || !token) notFound();
 
   const shortId = order.id.slice(-8).toUpperCase();
   const canReveal = order.status === "PAID" || order.status === "FULFILLED";
   const undelivered = order.items.filter((i) => !i.deliveredAt).length;
   const keepRefreshing = order.status === "PENDING" || (order.status === "PAID" && undelivered > 0);
   const copy = statusCopy[order.status];
+  // Refunded / failed orders can't be reviewed; a line can be once it has been delivered.
+  const canReview = order.status === "PAID" || order.status === "FULFILLED";
+  const reviewerName = maskedDisplayName(order.customer.email);
+  const subtotal = order.subtotalCents || order.totalCents + order.discountCents;
+  const showBreakdown = order.discountCents > 0 || order.walletAppliedCents > 0;
+  const paidByCard = Math.max(order.totalCents - order.walletAppliedCents, 0);
 
   const items = order.items.map((item) => {
     const warrantyHours = item.variant.product.warrantyHours;
@@ -302,11 +313,96 @@ export default async function OrderPage({ params, searchParams }: Props) {
                     </p>
                   ) : null}
                 </div>
+
+                {canReview && item.deliveredAt && !item.review ? (
+                  <div className="border-t border-border bg-bg/40 p-4 sm:p-5">
+                    <ReviewForm
+                      orderId={order.id}
+                      token={token}
+                      orderItemId={item.id}
+                      productName={item.productName}
+                      defaultName={reviewerName}
+                    />
+                  </div>
+                ) : item.review ? (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border bg-bg/40 px-4 py-3 text-sm sm:px-5">
+                    <span className="text-muted">تقييمك</span>
+                    <Stars value={item.review.rating} className="size-4" />
+                    <span className={`badge ${reviewStatusCopy[item.review.status].tone}`}>
+                      {reviewStatusCopy[item.review.status].label}
+                    </span>
+                    {item.review.status === "APPROVED" && item.variant.product.active ? (
+                      <Link
+                        href={`${productHref(item.variant.product.slug)}#reviews`}
+                        className="ms-auto text-xs text-muted underline decoration-border underline-offset-4 hover:text-volt hover:decoration-volt"
+                      >
+                        عرض في صفحة المنتج
+                      </Link>
+                    ) : null}
+                  </div>
+                ) : null}
               </li>
             );
           })}
         </ul>
       </section>
+
+      {showBreakdown ? (
+        <section aria-labelledby="order-payment" className="card mt-6 p-4 sm:p-5">
+          <h2 id="order-payment" className="font-bold">
+            ملخص الدفع
+          </h2>
+          <dl className="mt-4 space-y-2.5 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-muted">المجموع الفرعي</dt>
+              <dd dir="ltr" className="font-display font-semibold tabular-nums">
+                {formatPrice(subtotal, order.currency)}
+              </dd>
+            </div>
+            {order.discountCents > 0 ? (
+              <div className="flex items-center justify-between gap-3 text-success">
+                <dt>
+                  الخصم
+                  {order.coupon ? (
+                    <>
+                      {" "}
+                      <span dir="ltr" className="font-display text-xs">
+                        ({order.coupon.code})
+                      </span>
+                    </>
+                  ) : null}
+                </dt>
+                <dd dir="ltr" className="font-display font-semibold tabular-nums">
+                  {"\u2212"}
+                  {formatPrice(order.discountCents, order.currency)}
+                </dd>
+              </div>
+            ) : null}
+            <div className="flex items-center justify-between gap-3 border-t border-border pt-2.5">
+              <dt className="font-semibold">الإجمالي</dt>
+              <dd dir="ltr" className="font-display font-bold tabular-nums">
+                {formatPrice(order.totalCents, order.currency)}
+              </dd>
+            </div>
+            {order.walletAppliedCents > 0 ? (
+              <>
+                <div className="flex items-center justify-between gap-3 text-volt">
+                  <dt>مدفوع من رصيد المحفظة</dt>
+                  <dd dir="ltr" className="font-display font-semibold tabular-nums">
+                    {formatPrice(order.walletAppliedCents, order.currency)}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-muted">مدفوع بالبطاقة</dt>
+                  <dd dir="ltr" className="font-display font-semibold tabular-nums">
+                    {formatPrice(paidByCard, order.currency)}
+                  </dd>
+                </div>
+              </>
+            ) : null}
+          </dl>
+        </section>
+      ) : null}
 
       <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-4 text-sm">
         <p className="text-muted">

@@ -1,8 +1,9 @@
 import Link from "next/link";
 import type { ProductCardData } from "@/app/(store)/_lib/queries";
-import { IconArrow } from "./icons";
+import { IconArrow, IconStar } from "./icons";
 import { ProductMedia } from "./product-media";
 import { productHref } from "./site";
+import { formatRating, reviewCountLabel } from "./stars";
 import { Price, StockIndicator, TypeBadge, stockState } from "./ui";
 
 export function ProductCard({ product, priority = false }: { product: ProductCardData; priority?: boolean }) {
@@ -31,6 +32,21 @@ export function ProductCard({ product, priority = false }: { product: ProductCar
         </div>
 
         <h3 className="line-clamp-2 text-sm font-semibold leading-6 sm:text-base">{product.name}</h3>
+
+        {product.rating ? (
+          <p className="-mt-1 flex items-center gap-1 text-xs text-muted">
+            <span className="sr-only">
+              التقييم {formatRating(product.rating.average)} من 5، {reviewCountLabel(product.rating.count)}
+            </span>
+            <IconStar filled className="size-3.5 text-volt" />
+            <span aria-hidden="true" dir="ltr" className="font-display font-bold text-text tabular-nums">
+              {formatRating(product.rating.average)}
+            </span>
+            <span aria-hidden="true" dir="ltr" className="font-display tabular-nums">
+              ({product.rating.count})
+            </span>
+          </p>
+        ) : null}
 
         <div className="mt-auto flex items-end justify-between gap-2 pt-1">
           <div className="flex flex-col">

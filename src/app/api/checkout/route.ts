@@ -1,9 +1,8 @@
 import { z } from "zod";
-import type Stripe from "stripe";
-import type { ProductType } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { randomToken } from "@/lib/crypto";
-import { getStripe, isStripeEnabled } from "@/lib/stripe";
+import { getCustomerSession, normalizeEmail, type CustomerSession } from "@/lib/customer-auth";
 import {
   OutOfStockError,
   failPendingOrder,
@@ -13,6 +12,10 @@ import {
   reserveStock,
 } from "@/lib/fulfillment";
 import { orderPagePath, siteUrl } from "@/lib/email";
+import { CouponError, claimCoupon, normalizeCouponCode, quoteCart, type QuoteLine } from "@/lib/pricing";
+import { WALLET_CURRENCY, debitWallet, lockWallet } from "@/lib/wallet";
+import { getCheckoutOptions, getProvider, resolveProvider, type ProviderId } from "@/lib/payments";
+import { clientIp, jsonError, rateLimit } from "../_lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,74 +24,40 @@ const MAX_LINES = 20;
 const MAX_QUANTITY = 10;
 const RATE_LIMIT = 10; // requests
 const RATE_WINDOW_MS = 60_000; // per minute, per IP
-// Stripe requires expires_at to be at least 30 minutes away; one extra minute absorbs clock skew.
-// Reservations of PENDING orders are released after RESERVATION_TTL_MINUTES (35).
-const SESSION_TTL_SECONDS = 31 * 60;
 const RESERVE_ATTEMPTS = 5;
 
-const bodySchema = z.object({
-  email: z
-    .string({ error: "البريد الإلكتروني مطلوب" })
-    .trim()
-    .toLowerCase()
-    .max(254, { error: "البريد الإلكتروني طويل جداً" })
-    .pipe(z.email({ error: "البريد الإلكتروني غير صالح" })),
-  items: z
-    .array(
-      z.object({
-        variantId: z.string({ error: "منتج غير صالح في السلة" }).trim().min(1, { error: "منتج غير صالح في السلة" }).max(64),
-        quantity: z
-          .number({ error: "الكمية غير صالحة" })
-          .int({ error: "الكمية يجب أن تكون رقماً صحيحاً" })
-          .min(1, { error: "أقل كمية هي 1" })
-          .max(MAX_QUANTITY, { error: `أقصى كمية للمنتج الواحد هي ${MAX_QUANTITY}` }),
-      }),
-      { error: "السلة غير صالحة" },
-    )
-    .min(1, { error: "السلة فارغة" })
-    .max(MAX_LINES, { error: `لا يمكن أن تحتوي السلة على أكثر من ${MAX_LINES} منتجاً` }),
-}, { error: "بيانات الطلب غير صالحة" });
+const emailSchema = z
+  .string({ error: "البريد الإلكتروني مطلوب" })
+  .trim()
+  .toLowerCase()
+  .min(1, { error: "البريد الإلكتروني مطلوب" })
+  .max(254, { error: "البريد الإلكتروني طويل جداً" })
+  .pipe(z.email({ error: "البريد الإلكتروني غير صالح" }));
 
-function jsonError(error: string, status: number, headers?: HeadersInit) {
-  return Response.json({ error }, { status, headers });
-}
-
-// ---- Basic in-memory rate limit (per instance; good enough for a single Railway service) ----
-type Bucket = { count: number; resetAt: number };
-const rateLimitStore = globalThis as unknown as { __nitroCheckoutRateLimit?: Map<string, Bucket> };
-const buckets = (rateLimitStore.__nitroCheckoutRateLimit ??= new Map<string, Bucket>());
-
-function clientIp(req: Request): string {
-  const realIp = req.headers.get("x-real-ip")?.trim();
-  if (realIp) return realIp;
-  const forwarded = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded || "unknown";
-}
-
-/** Returns seconds to wait when the IP is over the limit, otherwise 0. */
-function rateLimit(ip: string): number {
-  const now = Date.now();
-  if (buckets.size > 5_000) {
-    for (const [key, bucket] of buckets) if (bucket.resetAt <= now) buckets.delete(key);
-  }
-  const bucket = buckets.get(ip);
-  if (!bucket || bucket.resetAt <= now) {
-    buckets.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return 0;
-  }
-  bucket.count += 1;
-  return bucket.count > RATE_LIMIT ? Math.ceil((bucket.resetAt - now) / 1000) : 0;
-}
-
-type Line = {
-  variantId: string;
-  quantity: number;
-  productName: string;
-  variantLabel: string;
-  productType: ProductType;
-  unitPriceCents: number;
-  imageUrl: string | null;
-};
+const bodySchema = z.object(
+  {
+    // Validated below: ignored for signed-in customers, required for guests
+    email: z.unknown().optional(),
+    items: z
+      .array(
+        z.object({
+          variantId: z.string({ error: "منتج غير صالح في السلة" }).trim().min(1, { error: "منتج غير صالح في السلة" }).max(64),
+          quantity: z
+            .number({ error: "الكمية غير صالحة" })
+            .int({ error: "الكمية يجب أن تكون رقماً صحيحاً" })
+            .min(1, { error: "أقل كمية هي 1" })
+            .max(MAX_QUANTITY, { error: `أقصى كمية للمنتج الواحد هي ${MAX_QUANTITY}` }),
+        }),
+        { error: "السلة غير صالحة" },
+      )
+      .min(1, { error: "السلة فارغة" })
+      .max(MAX_LINES, { error: `لا يمكن أن تحتوي السلة على أكثر من ${MAX_LINES} منتجاً` }),
+    couponCode: z.string({ error: "كود الخصم غير صالح" }).trim().max(64, { error: "كود الخصم غير صالح" }).nullish(),
+    useWallet: z.boolean({ error: "بيانات الطلب غير صالحة" }).optional(),
+    provider: z.enum(["STRIPE", "TAP"], { error: "طريقة الدفع غير صالحة" }).optional(),
+  },
+  { error: "بيانات الطلب غير صالحة" },
+);
 
 function outOfStockMessage(productName: string, variantLabel: string, available: number) {
   return available <= 0
@@ -98,45 +67,103 @@ function outOfStockMessage(productName: string, variantLabel: string, available:
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** The signed-in customer, or null (guest). Also null outside a request scope (in-process scripts). */
+async function currentCustomer(): Promise<CustomerSession | null> {
+  try {
+    return await getCustomerSession();
+  } catch (err) {
+    console.warn("[checkout] Could not read the customer session; continuing as guest", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/** A checkout the buyer must fix (HTTP status + Arabic message); thrown inside the transaction to roll it back. */
+class CheckoutRejection extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+type ReservedOrder = {
+  id: string;
+  accessToken: string;
+  totalCents: number;
+  walletAppliedCents: number;
+  amountDueCents: number;
+};
+
+type OrderRequest = {
+  email: string;
+  sessionCustomerId: string | null;
+  lines: QuoteLine[];
+  currency: string;
+  subtotalCents: number;
+  couponCode: string | null;
+  useWallet: boolean;
+};
+
 /**
- * Creates the customer, the PENDING order and its items, and reserves every stock unit, all in
- * one transaction: either the whole cart is reserved or nothing is written.
+ * One transaction: customer, coupon use, wallet debit, the PENDING order and its items, and every
+ * reserved stock unit. Either all of it is written or nothing is. Coupon and wallet are
+ * re-validated here under row locks (lock order: customer, then coupon), so the amounts may
+ * differ from the preview quote if something changed in between.
  * Retries briefly when stock exists but is locked by concurrent checkouts.
  */
-async function createReservedOrder(
-  email: string,
-  lines: Line[],
-  currency: string,
-): Promise<{ id: string; accessToken: string } | OutOfStockError> {
-  const totalCents = lines.reduce((sum, line) => sum + line.unitPriceCents * line.quantity, 0);
+async function createReservedOrder(req: OrderRequest): Promise<ReservedOrder | OutOfStockError> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await prisma.$transaction(
         async (tx) => {
-          const customer = await tx.customer.upsert({
-            where: { email },
-            create: { email },
-            update: {},
-            select: { id: true },
-          });
-          const order = await tx.order.create({
-            data: {
-              accessToken: randomToken(),
-              customerId: customer.id,
-              status: "PENDING",
-              totalCents,
-              currency,
-              items: {
-                create: lines.map((line) => ({
-                  variantId: line.variantId,
-                  productName: line.productName,
-                  variantLabel: line.variantLabel,
-                  productType: line.productType,
-                  quantity: line.quantity,
-                  unitPriceCents: line.unitPriceCents,
-                })),
-              },
+          let customerId: string;
+          if (req.sessionCustomerId) {
+            const customer = await tx.customer.findUnique({ where: { id: req.sessionCustomerId }, select: { id: true } });
+            if (!customer) throw new CheckoutRejection("انتهت جلستك، يرجى تسجيل الدخول من جديد", 401);
+            customerId = customer.id;
+          } else {
+            const customer = await tx.customer.upsert({ where: { email: req.email }, create: { email: req.email }, update: {}, select: { id: true } });
+            customerId = customer.id;
+          }
+          const walletBalance = req.useWallet && req.currency === WALLET_CURRENCY ? await lockWallet(tx, customerId) : 0;
+
+          let coupon: { couponId: string; discountCents: number } | null = null;
+          if (req.couponCode) {
+            coupon = await claimCoupon(tx, { code: req.couponCode, lines: req.lines, currency: req.currency, email: req.email });
+          }
+          const discountCents = coupon?.discountCents ?? 0;
+          const totalCents = req.subtotalCents - discountCents;
+          const walletAppliedCents = Math.max(0, Math.min(walletBalance, totalCents));
+
+          const data: Prisma.OrderCreateInput = {
+            accessToken: randomToken(),
+            customer: { connect: { id: customerId } },
+            status: "PENDING",
+            subtotalCents: req.subtotalCents,
+            discountCents,
+            walletAppliedCents,
+            totalCents,
+            currency: req.currency,
+            items: {
+              create: req.lines.map((line) => ({
+                variantId: line.variantId,
+                productName: line.productName,
+                variantLabel: line.variantLabel,
+                productType: line.productType,
+                quantity: line.quantity,
+                unitPriceCents: line.unitPriceCents,
+              })),
             },
+          };
+          if (coupon) {
+            data.coupon = { connect: { id: coupon.couponId } };
+            data.couponRedemption = {
+              create: { coupon: { connect: { id: coupon.couponId } }, customerEmail: req.email, discountCents },
+            };
+          }
+          const order = await tx.order.create({
+            data,
             select: {
               id: true,
               accessToken: true,
@@ -145,10 +172,24 @@ async function createReservedOrder(
               },
             },
           });
+
+          if (walletAppliedCents > 0) {
+            await debitWallet(tx, customerId, walletAppliedCents, {
+              type: "PURCHASE",
+              orderId: order.id,
+              note: `طلب #${order.id.slice(-8).toUpperCase()}`,
+            });
+          }
           for (const item of order.items) {
             if (item.productType !== "SERVICE") await reserveStock(tx, item);
           }
-          return { id: order.id, accessToken: order.accessToken };
+          return {
+            id: order.id,
+            accessToken: order.accessToken,
+            totalCents,
+            walletAppliedCents,
+            amountDueCents: totalCents - walletAppliedCents,
+          };
         },
         { maxWait: 10_000, timeout: 20_000 },
       );
@@ -160,18 +201,23 @@ async function createReservedOrder(
   }
 }
 
+/** Marks a fully covered (wallet) or dev-mode order paid and delivers it now. */
+async function completeWithoutGateway(orderId: string, provider: "WALLET" | "DEV") {
+  await markOrderPaid(orderId, { provider });
+  try {
+    await fulfillOrder(orderId);
+  } catch (err) {
+    console.error(`[checkout] Immediate fulfillment failed for order ${orderId} (${provider})`, err);
+  }
+}
+
 export async function POST(req: Request) {
-  const retryAfter = rateLimit(clientIp(req));
+  const retryAfter = rateLimit("checkout", clientIp(req), RATE_LIMIT, RATE_WINDOW_MS);
   if (retryAfter > 0) {
     return jsonError("طلبات كثيرة جداً، يرجى المحاولة بعد دقيقة", 429, { "Retry-After": String(retryAfter) });
   }
 
-  const stripeEnabled = isStripeEnabled();
-  if (!stripeEnabled && process.env.NODE_ENV === "production") {
-    return jsonError("الدفع غير متاح حالياً، يرجى المحاولة لاحقاً", 503);
-  }
-
-  // Free stock held by abandoned checkouts whose webhook never arrived (cheap, indexed)
+  // Free stock, wallet credit and coupon uses held by abandoned checkouts whose webhook never arrived
   try {
     await releaseStaleReservations();
   } catch (err) {
@@ -188,54 +234,47 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return jsonError(parsed.error.issues[0]?.message ?? "بيانات الطلب غير صالحة", 400);
   }
-  const { email } = parsed.data;
+  const body = parsed.data;
 
-  // Merge duplicate lines for the same variant
-  const quantities = new Map<string, number>();
-  for (const item of parsed.data.items) {
-    quantities.set(item.variantId, (quantities.get(item.variantId) ?? 0) + item.quantity);
+  const session = await currentCustomer();
+  let email: string;
+  if (session) {
+    email = normalizeEmail(session.email); // the account's email, whatever the form sent
+  } else {
+    const checked = emailSchema.safeParse(body.email ?? "");
+    if (!checked.success) return jsonError(checked.error.issues[0]?.message ?? "البريد الإلكتروني غير صالح", 400);
+    email = checked.data;
+  }
+  const useWallet = body.useWallet === true;
+  if (useWallet && !session) return jsonError("سجّل الدخول لاستخدام رصيد المحفظة", 401);
+
+  const options = getCheckoutOptions();
+  if (body.provider && !options.devMode && !resolveProvider(body.provider)) {
+    return jsonError("طريقة الدفع المختارة غير متاحة حالياً", 400);
   }
 
+  const rawCode = body.couponCode?.trim() || null;
+  const couponCode = rawCode ? normalizeCouponCode(rawCode) : null;
+  if (rawCode && !couponCode) return jsonError("كود الخصم غير صالح", 400);
+
   try {
-    const variants = await prisma.productVariant.findMany({
-      where: { id: { in: [...quantities.keys()] } },
-      include: { product: { select: { name: true, type: true, active: true, imageUrl: true } } },
+    const quote = await quoteCart({
+      items: body.items,
+      couponCode: couponCode ?? undefined,
+      useWallet,
+      customerId: session?.customerId ?? null,
+      email,
     });
-    const byId = new Map(variants.map((v) => [v.id, v]));
-
-    const lines: Line[] = [];
-    for (const [variantId, quantity] of quantities) {
-      const variant = byId.get(variantId);
-      if (!variant) {
-        return jsonError("أحد المنتجات في السلة لم يعد متوفراً، يرجى تحديث السلة", 400);
-      }
-      const { product } = variant;
-      if (!product.active) {
-        return jsonError(`المنتج "${product.name}" غير متاح حالياً، يرجى إزالته من السلة`, 400);
-      }
-      if (quantity > MAX_QUANTITY) {
-        return jsonError(`أقصى كمية من "${product.name} - ${variant.label}" هي ${MAX_QUANTITY}`, 400);
-      }
-      lines.push({
-        variantId,
-        quantity,
-        productName: product.name,
-        variantLabel: variant.label,
-        productType: product.type,
-        unitPriceCents: variant.priceCents,
-        imageUrl: product.imageUrl,
-      });
+    if (!quote.ok) return jsonError(quote.error, 400);
+    // Never charge more than the buyer was shown: an unusable coupon stops the checkout
+    if (couponCode && quote.couponError) return jsonError(quote.couponError, 400);
+    if (quote.amountDueCents > 0 && options.providers.length === 0 && !options.devMode) {
+      return jsonError("الدفع غير متاح حالياً، يرجى المحاولة لاحقاً", 503);
     }
-
-    const currencies = new Set(variants.map((v) => v.currency.toUpperCase()));
-    if (currencies.size !== 1) {
-      return jsonError("لا يمكن الدفع لمنتجات بعملات مختلفة في طلب واحد", 400);
-    }
-    const currency = [...currencies][0];
 
     // Fast pre-check for delivered-from-stock products (SERVICE is delivered manually).
     // Not authoritative: the reservation below is what guarantees the stock.
-    const stockLines = lines.filter((line) => line.productType !== "SERVICE");
+    const stockLines = quote.lines.filter((line) => line.productType !== "SERVICE");
     if (stockLines.length > 0) {
       const counts = await prisma.inventoryItem.groupBy({
         by: ["variantId"],
@@ -251,7 +290,22 @@ export async function POST(req: Request) {
       }
     }
 
-    const reservation = await createReservedOrder(email, lines, currency);
+    let reservation: ReservedOrder | OutOfStockError;
+    try {
+      reservation = await createReservedOrder({
+        email,
+        sessionCustomerId: session?.customerId ?? null,
+        lines: quote.lines,
+        currency: quote.currency,
+        subtotalCents: quote.subtotalCents,
+        couponCode,
+        useWallet,
+      });
+    } catch (err) {
+      if (err instanceof CouponError) return jsonError(err.message, 409);
+      if (err instanceof CheckoutRejection) return jsonError(err.message, err.status);
+      throw err;
+    }
     if (reservation instanceof OutOfStockError) {
       return jsonError(
         reservation.transient
@@ -262,58 +316,59 @@ export async function POST(req: Request) {
     }
     const order = reservation;
 
-    if (!stripeEnabled) {
+    if (order.amountDueCents === 0) {
+      // Fully covered by the wallet (and/or coupon): no gateway, deliver now
+      await completeWithoutGateway(order.id, "WALLET");
+      return Response.json({ url: orderPagePath(order) });
+    }
+    if (options.devMode) {
       // Dev mode (never in production): no real charge, deliver immediately
-      await markOrderPaid(order.id);
-      try {
-        await fulfillOrder(order.id);
-      } catch (err) {
-        console.error(`[checkout] Dev-mode fulfillment failed for order ${order.id}`, err);
-      }
+      await completeWithoutGateway(order.id, "DEV");
       return Response.json({ url: orderPagePath(order) });
     }
 
+    const providerId: ProviderId | null = resolveProvider(body.provider);
+    if (!providerId) {
+      await failPendingOrder(order.id); // the wallet balance changed and no gateway is available
+      return jsonError("الدفع غير متاح حالياً، يرجى المحاولة لاحقاً", 503);
+    }
+
     const site = siteUrl();
-    let session: Stripe.Checkout.Session;
+    const shortId = order.id.slice(-8).toUpperCase();
+    let payment: { ref: string; url: string };
     try {
-      session = await getStripe().checkout.sessions.create(
-        {
-          mode: "payment",
-          line_items: lines.map((line) => ({
-            quantity: line.quantity,
-            price_data: {
-              currency: currency.toLowerCase(),
-              unit_amount: line.unitPriceCents,
-              product_data: {
-                name: `${line.productName} - ${line.variantLabel}`,
-                ...(line.imageUrl?.startsWith("https://") ? { images: [line.imageUrl] } : {}),
-              },
-            },
-          })),
-          customer_email: email,
-          client_reference_id: order.id,
-          metadata: { orderId: order.id },
-          payment_intent_data: { metadata: { orderId: order.id } },
-          success_url: `${site}${orderPagePath(order)}`,
-          cancel_url: `${site}/cart`,
-          expires_at: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
-          locale: "auto",
-        },
-        { idempotencyKey: `checkout-session-${order.id}` },
-      );
+      payment = await getProvider(providerId).createPayment({
+        kind: "order",
+        refId: order.id,
+        amountMinor: order.amountDueCents,
+        currency: quote.currency,
+        email,
+        description: `طلب Nitro Store #${shortId}`,
+        // Itemised on the hosted page only when nothing was deducted (the adapter re-checks the sum)
+        lineItems: quote.lines.map((line) => ({
+          name: `${line.productName} - ${line.variantLabel}`,
+          quantity: line.quantity,
+          unitAmountMinor: line.unitPriceCents,
+          imageUrl: line.imageUrl,
+        })),
+        successUrl: `${site}${orderPagePath(order)}`,
+        cancelUrl: `${site}/cart`,
+        idempotencyKey: `checkout-session-${order.id}`,
+      });
     } catch (err) {
-      console.error(`[checkout] Stripe session creation failed for order ${order.id}`, err);
-      await failPendingOrder(order.id); // releases the reserved stock
+      console.error(`[checkout] ${providerId} payment creation failed for order ${order.id}`, err);
+      await failPendingOrder(order.id); // releases stock, returns the wallet debit and the coupon use
       return jsonError("تعذر بدء عملية الدفع، يرجى المحاولة مرة أخرى", 502);
     }
 
-    if (!session.url) {
-      await failPendingOrder(order.id);
-      return jsonError("تعذر بدء عملية الدفع، يرجى المحاولة مرة أخرى", 502);
-    }
-
-    await prisma.order.update({ where: { id: order.id }, data: { stripeSessionId: session.id } });
-    return Response.json({ url: session.url });
+    await prisma.order.update({
+      where: { id: order.id },
+      data:
+        providerId === "STRIPE"
+          ? { paymentProvider: "STRIPE", stripeSessionId: payment.ref }
+          : { paymentProvider: "TAP", tapChargeId: payment.ref },
+    });
+    return Response.json({ url: payment.url });
   } catch (err) {
     console.error("[checkout] Unexpected error", err);
     return jsonError("حدث خطأ غير متوقع، يرجى المحاولة مرة أخرى", 500);

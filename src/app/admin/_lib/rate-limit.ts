@@ -5,7 +5,9 @@ import { headers } from "next/headers";
 // use a shared store (Redis) if the app is ever scaled horizontally.
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_PER_EMAIL_IP = 5;
-const MAX_PER_IP = 25; // credential-stuffing guard across many emails
+const MAX_PER_IP = 25; // credential-stuffing guard across many emails (shared by password and 2FA failures)
+const MAX_2FA_PER_ADMIN_IP = 5;
+const MAX_2FA_PER_ADMIN = 10; // across IPs: one password holder rotating addresses still gets 10 guesses / 15 min
 
 type Entry = { count: number; resetAt: number };
 const g = globalThis as unknown as { __nitroLoginAttempts?: Map<string, Entry> };
@@ -29,14 +31,12 @@ function live(key: string, now: number): Entry | undefined {
   return entry;
 }
 
-export function checkLoginAllowed(email: string, ip: string): { allowed: true } | { allowed: false; retryAfterMinutes: number } {
+type Gate = { allowed: true } | { allowed: false; retryAfterMinutes: number };
+
+function check(limits: [key: string, max: number][]): Gate {
   const now = Date.now();
-  const k = keys(email, ip);
-  const blocking = [
-    [live(k.pair, now), MAX_PER_EMAIL_IP],
-    [live(k.ip, now), MAX_PER_IP],
-  ] as const;
-  for (const [entry, max] of blocking) {
+  for (const [key, max] of limits) {
+    const entry = live(key, now);
     if (entry && entry.count >= max) {
       return { allowed: false, retryAfterMinutes: Math.max(1, Math.ceil((entry.resetAt - now) / 60000)) };
     }
@@ -44,18 +44,54 @@ export function checkLoginAllowed(email: string, ip: string): { allowed: true } 
   return { allowed: true };
 }
 
-export function registerLoginFailure(email: string, ip: string) {
+function register(keysToBump: string[]) {
   const now = Date.now();
   prune(now);
-  for (const key of Object.values(keys(email, ip))) {
+  for (const key of keysToBump) {
     const entry = live(key, now);
     if (entry) entry.count += 1;
     else store.set(key, { count: 1, resetAt: now + WINDOW_MS });
   }
 }
 
+export function checkLoginAllowed(email: string, ip: string): Gate {
+  const k = keys(email, ip);
+  return check([
+    [k.pair, MAX_PER_EMAIL_IP],
+    [k.ip, MAX_PER_IP],
+  ]);
+}
+
+export function registerLoginFailure(email: string, ip: string) {
+  register(Object.values(keys(email, ip)));
+}
+
 export function clearLoginFailures(email: string, ip: string) {
   store.delete(keys(email, ip).pair);
+}
+
+// TOTP codes (login step 2, enabling/disabling 2FA): 10^6 codes, so cap guesses per admin too.
+function twoFactorKeys(adminId: string, ip: string) {
+  return { pair: `2fa:${adminId}|${ip}`, admin: `2fa-admin:${adminId}`, ip: `ip:${ip}` };
+}
+
+export function checkTwoFactorAllowed(adminId: string, ip: string): Gate {
+  const k = twoFactorKeys(adminId, ip);
+  return check([
+    [k.pair, MAX_2FA_PER_ADMIN_IP],
+    [k.admin, MAX_2FA_PER_ADMIN],
+    [k.ip, MAX_PER_IP],
+  ]);
+}
+
+export function registerTwoFactorFailure(adminId: string, ip: string) {
+  register(Object.values(twoFactorKeys(adminId, ip)));
+}
+
+export function clearTwoFactorFailures(adminId: string, ip: string) {
+  const k = twoFactorKeys(adminId, ip);
+  store.delete(k.pair);
+  store.delete(k.admin);
 }
 
 export async function clientIp(): Promise<string> {

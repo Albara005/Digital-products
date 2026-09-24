@@ -1,11 +1,12 @@
 import Link from "next/link";
+import { AccountButton, type HeaderAccount } from "./account-button";
 import { CartButton } from "./cart-button";
 import { CategoryNav, type NavCategory } from "./category-nav";
 import { IconSearch } from "./icons";
 import { Logo } from "./logo";
 import { SearchForm } from "./search-form";
 
-export function StoreHeader({ categories }: { categories: NavCategory[] }) {
+export function StoreHeader({ categories, account }: { categories: NavCategory[]; account?: HeaderAccount }) {
   return (
     <header className="sticky top-0 z-40 border-b border-border/80 bg-bg/80 backdrop-blur-xl supports-[backdrop-filter]:bg-bg/65">
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6">
@@ -19,6 +20,7 @@ export function StoreHeader({ categories }: { categories: NavCategory[] }) {
           >
             <IconSearch className="size-5" />
           </Link>
+          <AccountButton account={account} />
           <CartButton />
         </div>
       </div>

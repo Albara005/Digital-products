@@ -1,23 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { getCartLines } from "@/app/(store)/cart/actions";
+import { useEffect, useId, useState } from "react";
+import { type CheckoutQuote, getCartLines, quoteCheckout } from "@/app/(store)/cart/actions";
 import type { CartItem, CartLineInfo } from "@/lib/cart";
 import { formatPrice } from "@/lib/format";
 import { useCart } from "./cart-provider";
 import {
   IconAlert,
   IconBag,
+  IconCard,
+  IconCheck,
   IconLock,
   IconMinus,
   IconPlus,
   IconRefresh,
   IconSpinner,
+  IconTag,
   IconTrash,
+  IconUser,
+  IconWallet,
+  IconX,
 } from "./icons";
 import { ProductMedia } from "./product-media";
-import { productHref } from "./site";
+import { WALLET_CURRENCY, productHref } from "./site";
+import type { PaymentProviderOption } from "./topup-form";
 import { EmptyState, TypeBadge } from "./ui";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
@@ -32,8 +39,24 @@ function validateEmail(value: string): string | null {
 /** undefined = still loading, null = no longer sold. */
 type LineInfoMap = Record<string, CartLineInfo | null>;
 
-export function CartView() {
+/** A quote tagged with the inputs it was computed for; `result: null` = the request failed. */
+type QuoteState = { key: string; result: CheckoutQuote | null };
+
+export type CartAccount = { email: string; walletBalanceCents: number } | null;
+
+export function CartView({
+  account,
+  providers,
+  devMode,
+}: {
+  /** Signed-in customer (email + wallet), or null for guests. */
+  account: CartAccount;
+  /** Enabled card gateways; a choice is shown when there is more than one. */
+  providers: PaymentProviderOption[];
+  devMode: boolean;
+}) {
   const cart = useCart();
+  const uid = useId();
   const [info, setInfo] = useState<LineInfoMap>({});
   const [loadError, setLoadError] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -43,6 +66,13 @@ export function CartView() {
   const [submitting, setSubmitting] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  const [couponOpen, setCouponOpen] = useState(false);
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
+  const [useWallet, setUseWallet] = useState(false);
+  const [provider, setProvider] = useState(providers[0]?.id);
+  const [quote, setQuote] = useState<QuoteState>({ key: "", result: null });
 
   // Fetch fresh data only for variants we haven't priced yet (removing a line needs no refetch).
   const missingKey = cart.items
@@ -85,11 +115,55 @@ export function CartView() {
     }
   }, [cart, info]);
 
+  const loading = missingKey !== "";
+  const rows = cart.items.map((item) => ({ item, line: info[item.variantId] }));
+  const blocked = rows.some(({ line }) => line === null || (line && line.maxQuantity === 0));
+  const priced = rows.filter(
+    (r): r is { item: CartItem; line: CartLineInfo } => !!r.line && r.line.maxQuantity > 0,
+  );
+  const totals = new Map<string, number>();
+  for (const { item, line } of priced) {
+    const qty = Math.min(item.quantity, line.maxQuantity);
+    totals.set(line.currency, (totals.get(line.currency) ?? 0) + qty * line.unitPriceCents);
+  }
+  const mixedCurrency = totals.size > 1;
+  const units = priced.reduce((sum, { item, line }) => sum + Math.min(item.quantity, line.maxQuantity), 0);
+  const hasManual = priced.some(({ line }) => line.manualDelivery);
+  const checkoutItems = priced.map(({ item, line }) => ({
+    variantId: item.variantId,
+    quantity: Math.min(item.quantity, line.maxQuantity),
+  }));
+
+  // Server-side quote (coupon, wallet, amount due) for exactly what would be checked out.
+  const walletOn = !!account && useWallet;
+  const canQuote = !loading && !loadError && !blocked && !mixedCurrency && checkoutItems.length > 0;
+  const quoteKey = canQuote ? JSON.stringify([checkoutItems, appliedCoupon, walletOn]) : "";
+
+  useEffect(() => {
+    if (!quoteKey) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      const [items, couponCode, wallet] = JSON.parse(quoteKey) as [CartItem[], string | null, boolean];
+      quoteCheckout({ items, couponCode: couponCode ?? undefined, useWallet: wallet }).then(
+        (result) => {
+          if (!cancelled) setQuote({ key: quoteKey, result });
+        },
+        () => {
+          if (!cancelled) setQuote({ key: quoteKey, result: null });
+        },
+      );
+    }, 150);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [quoteKey]);
+
   if (redirecting) {
     return (
       <div className="card mt-8 flex flex-col items-center gap-3 px-6 py-16 text-center">
         <IconSpinner className="size-8 text-volt" />
-        <p className="font-bold">جارٍ تحويلك لإتمام الدفع…</p>
+        <p className="font-bold">جارٍ تحويلك لإتمام الطلب…</p>
         <p className="text-sm text-muted">لا تغلق هذه الصفحة.</p>
       </div>
     );
@@ -113,24 +187,42 @@ export function CartView() {
     );
   }
 
-  const loading = missingKey !== "";
-  const rows = cart.items.map((item) => ({ item, line: info[item.variantId] }));
-  const blocked = rows.some(({ line }) => line === null || (line && line.maxQuantity === 0));
-  const priced = rows.filter(
-    (r): r is { item: CartItem; line: CartLineInfo } => !!r.line && r.line.maxQuantity > 0,
-  );
-  const totals = new Map<string, number>();
-  for (const { item, line } of priced) {
-    const qty = Math.min(item.quantity, line.maxQuantity);
-    totals.set(line.currency, (totals.get(line.currency) ?? 0) + qty * line.unitPriceCents);
-  }
-  const mixedCurrency = totals.size > 1;
-  const units = priced.reduce((sum, { item, line }) => sum + Math.min(item.quantity, line.maxQuantity), 0);
-  const hasManual = priced.some(({ line }) => line.manualDelivery);
+  const current = quoteKey && quote.key === quoteKey ? quote : null;
+  const quoting = !!quoteKey && !current;
+  const q = current?.result?.ok ? current.result : null;
+  const quoteError = current
+    ? current.result === null
+      ? "تعذّر حساب الإجمالي النهائي الآن، وسيُحسب عند إتمام الطلب."
+      : current.result.ok
+        ? null
+        : current.result.error
+    : null;
+  const couponError = appliedCoupon && q?.couponError ? q.couponError : null;
+  const couponValid = !!(appliedCoupon && q?.coupon);
+  const walletBalance = q?.walletBalanceCents ?? account?.walletBalanceCents ?? 0;
+  const showWallet = !!account && walletBalance > 0;
+  const currency = q?.currency ?? [...totals.keys()][0] ?? "USD";
+  const amountDue = q ? q.amountDueCents : null;
+  const paidInFull = amountDue === 0;
+  const showProviders = providers.length > 1 && !paidInFull;
 
-  const emailError = validateEmail(email);
+  const emailError = account ? null : validateEmail(email);
   const showEmailError = emailTouched && emailError;
-  const canCheckout = !loading && !loadError && !blocked && !mixedCurrency && priced.length > 0 && !submitting;
+  const canCheckout =
+    !loading && !loadError && !blocked && !mixedCurrency && priced.length > 0 && !submitting && !quoting;
+
+  function applyCoupon(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const code = couponInput.trim().toUpperCase();
+    if (!code) return;
+    setCouponInput(code);
+    setAppliedCoupon(code);
+  }
+
+  function removeCoupon() {
+    setAppliedCoupon(null);
+    setCouponInput("");
+  }
 
   async function checkout(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -138,17 +230,20 @@ export function CartView() {
     setCheckoutError(null);
     if (emailError || !canCheckout) return;
 
+    // A coupon the quote rejected is not sent; one the quote couldn't check is left to the server.
+    const couponCode = appliedCoupon && !couponError ? appliedCoupon : undefined;
     setSubmitting(true);
     try {
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: email.trim(),
-          items: priced.map(({ item, line }) => ({
-            variantId: item.variantId,
-            quantity: Math.min(item.quantity, line.maxQuantity),
-          })),
+          // Signed in: the server uses the account email from the session.
+          ...(account ? {} : { email: email.trim() }),
+          items: checkoutItems,
+          ...(couponCode ? { couponCode } : {}),
+          ...(walletOn ? { useWallet: true } : {}),
+          ...(provider && !paidInFull ? { provider } : {}),
         }),
       });
       const data: unknown = await res.json().catch(() => null);
@@ -174,6 +269,10 @@ export function CartView() {
     }
     setSubmitting(false);
   }
+
+  const money = (cents: number) => formatPrice(cents, currency);
+  const pending = <span className="inline-block h-5 w-16 animate-pulse rounded bg-surface-2 align-middle" />;
+  const localSubtotal = totals.get(currency) ?? 0;
 
   return (
     <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
@@ -218,6 +317,112 @@ export function CartView() {
       <aside className="card p-5 sm:p-6 lg:sticky lg:top-32">
         <h2 className="text-lg font-bold">ملخص الطلب</h2>
 
+        {/* Coupon: its own form so Enter applies the code instead of checking out. */}
+        <div className="mt-5 border-b border-border pb-5">
+          {couponValid && q?.coupon ? (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-success/30 bg-success/10 p-3 text-sm">
+              <span className="flex min-w-0 items-center gap-2 text-success">
+                <IconTag className="size-4 shrink-0" />
+                <span className="min-w-0">
+                  <span dir="ltr" className="font-display font-bold tracking-wider">
+                    {q.coupon.code}
+                  </span>
+                  <span className="block truncate text-xs text-text">{q.coupon.label}</span>
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={removeCoupon}
+                disabled={submitting}
+                aria-label={`إزالة كود الخصم ${q.coupon.code}`}
+                className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-danger/10 hover:text-danger"
+              >
+                <IconX className="size-4" />
+              </button>
+            </div>
+          ) : couponOpen || appliedCoupon ? (
+            <form onSubmit={applyCoupon} noValidate>
+              <label htmlFor={`${uid}-coupon`} className="label">
+                كود الخصم
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id={`${uid}-coupon`}
+                  type="text"
+                  dir="ltr"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  maxLength={40}
+                  autoFocus={!appliedCoupon}
+                  value={couponInput}
+                  onChange={(e) => {
+                    setCouponInput(e.target.value);
+                    // Editing a rejected code clears the error until it is applied again.
+                    if (appliedCoupon) setAppliedCoupon(null);
+                  }}
+                  aria-invalid={couponError ? true : undefined}
+                  aria-describedby={couponError ? `${uid}-coupon-error` : undefined}
+                  placeholder="NITRO10"
+                  className={`input h-11 min-w-0 flex-1 text-start font-display tracking-wider uppercase ${couponError ? "border-danger focus:border-danger" : ""}`}
+                />
+                <button
+                  type="submit"
+                  disabled={!couponInput.trim() || (!!appliedCoupon && quoting) || submitting}
+                  className="btn-ghost h-11 shrink-0 px-4"
+                >
+                  {appliedCoupon && quoting ? <IconSpinner className="size-4" /> : "تطبيق"}
+                </button>
+              </div>
+              {couponError ? (
+                <p id={`${uid}-coupon-error`} role="alert" className="mt-1.5 text-xs text-danger">
+                  {couponError}
+                </p>
+              ) : null}
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setCouponOpen(true)}
+              className="flex items-center gap-2 text-sm font-semibold text-volt transition hover:text-volt-dim"
+            >
+              <IconTag className="size-4" />
+              لديك كود خصم؟
+            </button>
+          )}
+        </div>
+
+        {showWallet ? (
+          <label className="mt-5 flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-border bg-surface-2 p-3 transition has-[:checked]:border-volt/50 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-volt/60">
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-volt/10 text-volt ring-1 ring-volt/20">
+                <IconWallet className="size-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">استخدم رصيد المحفظة</span>
+                <span className="block text-xs text-muted">
+                  المتاح{" "}
+                  <span dir="ltr" className="font-display font-bold text-text tabular-nums">
+                    {formatPrice(walletBalance, WALLET_CURRENCY)}
+                  </span>
+                </span>
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={useWallet}
+              onChange={(e) => setUseWallet(e.target.checked)}
+              disabled={submitting}
+              className="peer sr-only"
+            />
+            <span
+              aria-hidden="true"
+              className="relative h-6 w-11 shrink-0 rounded-full bg-border transition peer-checked:bg-volt after:absolute after:top-0.5 after:start-0.5 after:size-5 after:rounded-full after:bg-text after:transition-all peer-checked:after:start-[1.375rem] peer-checked:after:bg-bg"
+            />
+          </label>
+        ) : null}
+
         <dl className="mt-5 space-y-3 text-sm">
           <div className="flex items-center justify-between">
             <dt className="text-muted">عدد المنتجات</dt>
@@ -225,54 +430,148 @@ export function CartView() {
               {loading ? "…" : units}
             </dd>
           </div>
+          {mixedCurrency ? null : (
+            <div className="flex items-center justify-between">
+              <dt className="text-muted">المجموع الفرعي</dt>
+              <dd dir="ltr" className="font-display font-bold tabular-nums">
+                {loading ? pending : money(q?.subtotalCents ?? localSubtotal)}
+              </dd>
+            </div>
+          )}
+          {q && q.discountCents > 0 ? (
+            <div className="flex items-center justify-between text-success">
+              <dt>
+                الخصم
+                {q.coupon ? (
+                  <>
+                    {" "}
+                    <span dir="ltr" className="font-display text-xs">
+                      ({q.coupon.code})
+                    </span>
+                  </>
+                ) : null}
+              </dt>
+              <dd dir="ltr" className="font-display font-bold tabular-nums">
+                {"\u2212"}
+                {money(q.discountCents)}
+              </dd>
+            </div>
+          ) : null}
+          {q && q.walletAppliedCents > 0 ? (
+            <div className="flex items-center justify-between text-volt">
+              <dt>من رصيد المحفظة</dt>
+              <dd dir="ltr" className="font-display font-bold tabular-nums">
+                {"\u2212"}
+                {money(q.walletAppliedCents)}
+              </dd>
+            </div>
+          ) : null}
           <div className="flex items-center justify-between border-t border-border pt-3">
-            <dt className="font-bold">المجموع</dt>
+            <dt className="font-bold">{q && (q.discountCents > 0 || q.walletAppliedCents > 0) ? "المبلغ المستحق" : "المجموع"}</dt>
             <dd className="text-end">
-              {loading ? (
+              {loading || quoting ? (
                 <span className="inline-block h-7 w-24 animate-pulse rounded bg-surface-2" />
               ) : totals.size === 0 ? (
                 <span className="text-muted">—</span>
-              ) : (
-                [...totals].map(([currency, cents]) => (
-                  <span key={currency} dir="ltr" className="block font-display text-2xl font-bold text-volt tabular-nums">
-                    {formatPrice(cents, currency)}
+              ) : mixedCurrency || amountDue === null ? (
+                [...totals].map(([cur, cents]) => (
+                  <span key={cur} dir="ltr" className="block font-display text-2xl font-bold text-volt tabular-nums">
+                    {formatPrice(cents, cur)}
                   </span>
                 ))
+              ) : (
+                <span dir="ltr" className="block font-display text-2xl font-bold text-volt tabular-nums">
+                  {money(amountDue)}
+                </span>
               )}
             </dd>
           </div>
         </dl>
 
         <form onSubmit={checkout} noValidate className="mt-6 space-y-4">
-          <div>
-            <label htmlFor="checkout-email" className="label">
-              البريد الإلكتروني
-            </label>
-            <input
-              id="checkout-email"
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              dir="ltr"
-              required
-              maxLength={254}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onBlur={() => setEmailTouched(true)}
-              aria-invalid={showEmailError ? true : undefined}
-              aria-describedby="checkout-email-hint"
-              placeholder="you@example.com"
-              className={`input h-11 text-start ${showEmailError ? "border-danger focus:border-danger" : ""}`}
-            />
-            <p id="checkout-email-hint" className={`mt-1.5 text-xs ${showEmailError ? "text-danger" : "text-muted"}`}>
-              {showEmailError ? emailError : "سنرسل رابط طلبك إلى هذا البريد."}
-            </p>
-          </div>
+          {account ? (
+            <div>
+              <p className="label">البريد الإلكتروني</p>
+              <div className="flex h-11 items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 text-sm">
+                <IconUser className="size-4 shrink-0 text-volt" />
+                <bdi dir="ltr" className="min-w-0 truncate">
+                  {account.email}
+                </bdi>
+              </div>
+              <p className="mt-1.5 text-xs text-muted">يُحفظ الطلب في حسابك ونرسل رابطه إلى بريدك.</p>
+            </div>
+          ) : (
+            <div>
+              <label htmlFor="checkout-email" className="label">
+                البريد الإلكتروني
+              </label>
+              <input
+                id="checkout-email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                dir="ltr"
+                required
+                maxLength={254}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onBlur={() => setEmailTouched(true)}
+                aria-invalid={showEmailError ? true : undefined}
+                aria-describedby="checkout-email-hint"
+                placeholder="you@example.com"
+                className={`input h-11 text-start ${showEmailError ? "border-danger focus:border-danger" : ""}`}
+              />
+              <p id="checkout-email-hint" className={`mt-1.5 text-xs ${showEmailError ? "text-danger" : "text-muted"}`}>
+                {showEmailError ? emailError : "سنرسل رابط طلبك إلى هذا البريد."}
+              </p>
+              <p className="mt-2 text-xs text-muted">
+                لديك حساب؟{" "}
+                <Link
+                  href="/login?next=/cart"
+                  className="font-semibold text-volt underline decoration-volt/30 underline-offset-4 hover:decoration-volt"
+                >
+                  سجّل الدخول
+                </Link>{" "}
+                لتتبّع طلباتك والدفع من رصيدك.
+              </p>
+            </div>
+          )}
+
+          {showProviders ? (
+            <fieldset disabled={submitting}>
+              <legend className="label">طريقة الدفع</legend>
+              <div className="grid grid-cols-2 gap-2">
+                {providers.map((p) => (
+                  <label
+                    key={p.id}
+                    className={`flex h-11 cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 text-sm font-semibold transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-volt/60 ${
+                      provider === p.id
+                        ? "border-volt bg-volt/[0.07] text-volt shadow-[inset_0_0_0_1px_var(--color-volt)]"
+                        : "border-border bg-surface-2 text-text hover:border-muted/50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name={`${uid}-provider`}
+                      value={p.id}
+                      checked={provider === p.id}
+                      onChange={() => setProvider(p.id)}
+                      className="sr-only"
+                    />
+                    <IconCard className="size-4 shrink-0" />
+                    <span className="truncate">{p.label}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ) : null}
 
           {blocked ? (
             <Notice>بعض المنتجات لم تعد متوفرة. احذفها من السلة للمتابعة.</Notice>
           ) : mixedCurrency ? (
             <Notice>لا يمكن الدفع لمنتجات بعملات مختلفة في طلب واحد. أكمل كل عملة في طلب منفصل.</Notice>
+          ) : quoteError ? (
+            <Notice>{quoteError}</Notice>
           ) : null}
 
           {checkoutError ? (
@@ -288,6 +587,16 @@ export function CartView() {
                 <IconSpinner className="size-4" />
                 جارٍ التحويل…
               </>
+            ) : paidInFull && q && q.walletAppliedCents > 0 ? (
+              <>
+                <IconWallet className="size-4" />
+                إتمام الطلب بالرصيد
+              </>
+            ) : paidInFull ? (
+              <>
+                <IconCheck className="size-4" />
+                إتمام الطلب
+              </>
             ) : (
               <>
                 <IconLock className="size-4" />
@@ -295,6 +604,12 @@ export function CartView() {
               </>
             )}
           </button>
+
+          {devMode && !paidInFull ? (
+            <p className="rounded-lg border border-dashed border-volt/40 p-2 text-center text-xs text-volt">
+              وضع التجربة: لن يُخصم أي مبلغ حقيقي.
+            </p>
+          ) : null}
 
           <p className="text-center text-xs leading-6 text-muted">
             {hasManual ? "الخدمات تُنفَّذ يدوياً بعد الدفع. " : "يصلك طلبك فوراً بعد تأكيد الدفع. "}

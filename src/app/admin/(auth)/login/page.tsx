@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import { redirect } from "next/navigation";
-import { getAdminSession } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import { LoginForm } from "@/components/admin/LoginForm";
+import { hasValidAdminSession } from "../../_lib/guard";
 import { loginAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -14,13 +13,16 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminLoginPage({ searchParams }: PageProps<"/admin/login">) {
-  const session = await getAdminSession();
-  // Only bounce valid, still-existing admins (a removed admin's cookie would otherwise loop).
-  if (session) {
-    const exists = await prisma.admin.count({ where: { id: session.adminId } });
-    if (exists) redirect("/admin");
-  }
-  const { expired } = await searchParams;
+  // Only bounce live sessions: a removed admin's or a revoked session's cookie would otherwise loop.
+  if (await hasValidAdminSession()) redirect("/admin");
+  const { expired, revoked, verify } = await searchParams;
+  const notice = revoked
+    ? "انتهت جلستك لأن كلمة المرور تغيّرت أو أُنهيت الجلسات من جهاز آخر. سجّل الدخول مجدداً."
+    : verify
+      ? "انتهت مهلة التحقق بخطوتين. أدخل كلمة المرور مجدداً."
+      : expired
+        ? "انتهت صلاحية الجلسة أو تم إيقاف الحساب. سجّل الدخول مجدداً."
+        : null;
 
   return (
     <main className="relative flex min-h-screen flex-1 items-center justify-center overflow-hidden px-4 py-12">
@@ -44,11 +46,7 @@ export default async function AdminLoginPage({ searchParams }: PageProps<"/admin
           </div>
         </div>
         <div className="card p-6">
-          {expired && (
-            <p className="mb-4 rounded-lg bg-surface-2 px-3 py-2 text-sm text-muted">
-              انتهت صلاحية الجلسة أو تم إيقاف الحساب. سجّل الدخول مجدداً.
-            </p>
-          )}
+          {notice && <p className="mb-4 rounded-lg bg-surface-2 px-3 py-2 text-sm text-muted">{notice}</p>}
           <LoginForm action={loginAction} />
         </div>
       </div>

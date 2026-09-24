@@ -3,7 +3,7 @@
 # Nitro Store - متجر نيترو للمنتجات الرقمية
 
 متجر إلكتروني عربي لبيع المنتجات الرقمية: بطاقات الألعاب، الاشتراكات، حسابات الألعاب الجاهزة، والخدمات الرقمية.
-يدفع العميل عبر Stripe ويستلم **فوراً** الأكواد أو بيانات الحسابات من المخزون تلقائياً، مع لوحة تحكم لإدارة المنتجات والمخزون والطلبات.
+يدفع العميل عبر **Tap** (مدى، KNET، Apple Pay والبطاقات الخليجية) أو **Stripe** (البطاقات الدولية) أو من **رصيد محفظته**، ويستلم **فوراً** الأكواد أو بيانات الحسابات من المخزون تلقائياً، مع كوبونات خصم ولوحة تحكم لإدارة المنتجات والمخزون والطلبات.
 
 ## المزايا
 
@@ -13,11 +13,14 @@
 - **تشفير المخزون**: الأكواد وبيانات الحسابات مشفّرة في قاعدة البيانات بـ AES-256-GCM.
 - **الأسعار من الخادم فقط**: الأسعار والمخزون تُقرأ من قاعدة البيانات عند الدفع، ولا يُوثق بأي سعر قادم من المتصفح.
 - **الخدمات والنقص في المخزون**: منتجات "الخدمة" وأي طلب لم يكفِه المخزون تبقى بحالة "مدفوع - بانتظار التسليم" ليسلّمها المدير يدوياً من لوحة التحكم.
-- **وضع التطوير**: بدون مفاتيح Stripe (وخارج بيئة الإنتاج فقط) تُعتبر الطلبات مدفوعة فوراً لتجربة المتجر محلياً.
+- **محفظة العميل**: رصيد بالدولار يُشحن عبر بوابة الدفع ويُستخدم كلياً أو جزئياً في الشراء، بسجل حركات لا يُعدَّل وقفل على مستوى قاعدة البيانات يمنع صرف الرصيد مرتين.
+- **كوبونات الخصم**: نسبة أو مبلغ ثابت، بحد أقصى للخصم وحد أدنى للطلب وعدد استخدامات كلي ولكل عميل وفترة صلاحية، ويمكن حصرها في فئة أو منتج.
+- **الاسترجاع**: إلى وسيلة الدفع الأصلية عبر Tap/Stripe، أو كرصيد في المحفظة، مرة واحدة فقط ومع تسجيل في سجل النشاط.
+- **وضع التطوير**: بدون أي مفتاح دفع (وخارج بيئة الإنتاج فقط) تُعتبر الطلبات وعمليات شحن المحفظة مدفوعة فوراً لتجربة المتجر محلياً.
 
 ## التقنيات
 
-Next.js 16 (App Router) - React 19 - TypeScript - Prisma 6 - PostgreSQL - Stripe Checkout - Resend (البريد) - Railway (النشر).
+Next.js 16 (App Router) - React 19 - TypeScript - Prisma 6 - PostgreSQL - Tap Payments - Stripe Checkout - Resend (البريد) - Railway (النشر).
 
 ## التشغيل محلياً
 
@@ -34,7 +37,7 @@ Next.js 16 (App Router) - React 19 - TypeScript - Prisma 6 - PostgreSQL - Stripe
    - `DATABASE_URL`: رابط قاعدة البيانات.
    - `AUTH_SECRET` و `INVENTORY_ENCRYPTION_KEY`: أنشئ كل واحد بالأمر `openssl rand -base64 32`.
    - `ADMIN_EMAIL` و `ADMIN_PASSWORD`: بيانات أول مدير (8 أحرف على الأقل لكلمة المرور).
-   - اترك `STRIPE_SECRET_KEY` فارغاً لتعمل في وضع التطوير (دفع وهمي فوري).
+   - اترك `TAP_SECRET_KEY` و `STRIPE_SECRET_KEY` فارغين لتعمل في وضع التطوير (دفع وهمي فوري).
 3. ثبّت الحزم:
    ```bash
    npm install
@@ -56,7 +59,19 @@ Next.js 16 (App Router) - React 19 - TypeScript - Prisma 6 - PostgreSQL - Stripe
    ```
    افتح http://localhost:3000 ، ولوحة التحكم على http://localhost:3000/admin
 
-## إعداد Stripe
+## بوابات الدفع
+
+تُفعَّل كل بوابة بمجرد وضع مفتاحها السري، ويختار العميل بينها في السلة (الافتراضية Tap). بدون أي مفتاح وخارج الإنتاج يعمل المتجر في وضع التطوير؛ وفي الإنتاج بدون بوابة لا تُقبل إلا الطلبات المدفوعة بالكامل من المحفظة.
+
+### Tap Payments (مدى، KNET، Apple Pay، البطاقات)
+
+1. من [لوحة Tap](https://businesses.tap.company) انسخ المفتاح السري (`sk_test_...` للتجربة، `sk_live_...` للإنتاج) إلى `TAP_SECRET_KEY`.
+2. لا يلزم إعداد Webhook يدوياً: كل عملية دفع تُنشأ ومعها رابط الإشعار `https://<نطاقك>/api/tap/webhook` ورابط العودة `https://<نطاقك>/api/tap/return`. إن طلبت Tap تسجيل الرابط في حسابك فاستخدم `https://<نطاقك>/api/tap/webhook`.
+3. تأكد أن `NEXT_PUBLIC_SITE_URL` يطابق نطاقك العام (https)، فمنه تُبنى هذه الروابط.
+
+آلية العمل: ينشئ المتجر عملية دفع (`POST /v2/charges` بمصدر `src_all`) ويحوّل العميل إلى صفحة Tap. **لا يُوثق بمحتوى الإشعار ولا بمعاملات رابط العودة**: في الحالتين يُعاد جلب العملية من Tap بالمفتاح السري، ولا يُعتبر الطلب مدفوعاً إلا إذا كانت حالتها `CAPTURED` وتطابق المبلغ والعملة والطلب المسجّل في بياناتها. الحالات النهائية الأخرى (`DECLINED`، `CANCELLED`، `FAILED`...) تُفشل الطلب وتعيد المخزون والرصيد والكوبون. المبالغ تُحوَّل بدقة حسب عملتها (خانتان للدولار، وثلاث للدينار الكويتي والبحريني والريال العماني وغيرها).
+
+### Stripe (البطاقات الدولية)
 
 1. من [لوحة Stripe](https://dashboard.stripe.com/apikeys) انسخ المفتاح السري (`sk_test_...` للتجربة، `sk_live_...` للإنتاج) إلى `STRIPE_SECRET_KEY`.
 2. أنشئ Webhook من **Developers → Webhooks → Add endpoint**:
@@ -74,11 +89,32 @@ Next.js 16 (App Router) - React 19 - TypeScript - Prisma 6 - PostgreSQL - Stripe
    وضع قيمة `whsec_...` التي يطبعها الأمر في `STRIPE_WEBHOOK_SECRET` ثم أعد تشغيل `npm run dev`.
    بطاقة الاختبار: `4242 4242 4242 4242` بأي تاريخ مستقبلي وأي CVC.
 
-آلية العمل: `POST /api/checkout` ينشئ الطلب بحالة "بانتظار الدفع" ويحجز له المخزون في معاملة واحدة، ثم ينشئ جلسة Stripe Checkout صالحة 30 دقيقة ويعيد رابط الدفع (إن فشل إنشاء الجلسة يُلغى الطلب ويُعاد المخزون فوراً).
-عند نجاح الدفع يستقبل `/api/stripe/webhook` الإشعار (بعد التحقق من التوقيع)، فيحوّل الطلب إلى "مدفوع" ويسلّم المخزون ويرسل البريد.
-عند الدفع تتحول الأكواد المحجوزة نفسها إلى "مباعة". انتهاء صلاحية الجلسة أو فشل الدفع يحوّل الطلب إلى "فشل" ويعيد المحجوز إلى المخزون المتاح.
-وكإجراء احتياطي إن ضاع إشعار من Stripe: كل طلب دفع جديد يحرر أولاً حجوزات الطلبات المعلّقة التي مضى عليها أكثر من 35 دقيقة ويحوّلها إلى "فشل"، وإن وصل إشعار دفع متأخر لطلب كهذا فإنه يُعتبر مدفوعاً ويُسلَّم من المخزون المتاح (أو يبقى بانتظار التسليم اليدوي إن نفد).
-جميع المعالجات قابلة للتكرار بأمان، وعند أي خطأ مؤقت يعيد الـ webhook رمز 500 ليعيد Stripe المحاولة.
+### مسار الطلب
+
+`POST /api/checkout` يحسب الأسعار من قاعدة البيانات، ثم في معاملة واحدة: يحجز المخزون، ويستهلك الكوبون (مع التحقق من حدوده تحت قفل)، ويخصم الجزء المستخدم من المحفظة، وينشئ الطلب بحالة "بانتظار الدفع". إن غطّت المحفظة المبلغ كاملاً يُسلَّم الطلب فوراً دون بوابة، وإلا تُنشأ عملية الدفع بالمبلغ المتبقي فقط ويُعاد رابطها.
+إن فشل إنشاء عملية الدفع، أو انتهت صلاحيتها، أو رُفض الدفع، أو مرّت 35 دقيقة دون تأكيد (يُفحص ذلك مع كل طلب شراء جديد)، يتحول الطلب إلى "فشل" ويُعاد **مرة واحدة فقط** كل ما حجزه: المخزون، ورصيد المحفظة، واستخدام الكوبون. وإن وصل تأكيد دفع متأخر لطلب كهذا يُعاد حجز الرصيد والكوبون ويُسلَّم الطلب؛ وإن لم يعد رصيد المحفظة كافياً يبقى "مدفوعاً" دون تسليم تلقائي لمراجعته يدوياً.
+جميع المعالجات قابلة للتكرار بأمان، وعند أي خطأ مؤقت تعيد الـ webhooks رمز 500 لتعيد البوابة المحاولة.
+
+## المحفظة
+
+- رصيد العميل بالدولار، ويظهر مع سجل حركاته في صفحة حسابه. كل حركة (شحن، شراء، استرجاع، تعديل من الإدارة) تُسجَّل مع الرصيد بعدها، والرصيد لا يصبح سالباً أبداً حتى مع طلبات متزامنة.
+- الشحن من صفحة الحساب عبر `POST /api/wallet/topup` (من 5 إلى 500 دولار بمبالغ صحيحة، ويتطلب تسجيل الدخول). يُضاف الرصيد مرة واحدة فقط عند تأكيد الدفع من Tap أو Stripe.
+- عند الشراء يختار العميل المسجّل "استخدام رصيد المحفظة" فيُخصم منه حتى قيمة الطلب ويُدفع الباقي عبر البوابة.
+
+## الكوبونات
+
+من **لوحة التحكم → الكوبونات**: أنشئ كوداً (يُحفظ بأحرف كبيرة ويُقبل بأي حالة)، بنسبة مئوية مع حد أقصى اختياري للخصم أو بمبلغ ثابت، مع حد أدنى للمشتريات، وعدد استخدامات كلي ولكل عميل (حسب البريد)، وتاريخ بداية ونهاية، ونطاق اختياري بفئة أو منتج (يُخصم عندها من المنتجات المطابقة فقط). الاستخدامات تُحتسب للطلبات غير الفاشلة فقط، ولا يمكن تجاوز الحد حتى مع طلبات متزامنة. يمكن إيقاف أي كوبون، أما الحذف فمسموح فقط لكوبون لم يُستخدم قط. البذرة تنشئ كوبوناً تجريبياً `WELCOME10` (خصم 10% بحد أقصى 5 دولار) أوقفه أو احذفه قبل الإطلاق إن لم ترده.
+
+## الاسترجاع
+
+من صفحة الطلب في لوحة التحكم، للطلبات المدفوعة أو المسلّمة فقط:
+
+| الطريقة | ما يحدث |
+| --- | --- |
+| إلى وسيلة الدفع الأصلية `ORIGINAL` | يُسترجع المبلغ المدفوع عبر البوابة من خلال Tap أو Stripe، ويُعاد الجزء المدفوع من المحفظة إلى المحفظة |
+| إلى المحفظة `WALLET` | تُضاف قيمة الطلب كاملة إلى محفظة العميل كرصيد، دون أي عملية على البوابة |
+
+في الحالتين يصبح الطلب "مسترجع" مرة واحدة فقط (الضغط المزدوج لا يكرر الاسترجاع)، وتُعاد الوحدات المحجوزة غير المسلّمة إلى المخزون، وتُسجَّل العملية في سجل النشاط. إن رفضت البوابة الاسترجاع لا يتغير شيء ويمكن المحاولة مجدداً أو الاسترجاع إلى المحفظة.
 
 ## البريد الإلكتروني (Resend)
 
@@ -101,8 +137,9 @@ Next.js 16 (App Router) - React 19 - TypeScript - Prisma 6 - PostgreSQL - Stripe
    | `AUTH_SECRET` | ناتج `openssl rand -base64 32` |
    | `INVENTORY_ENCRYPTION_KEY` | ناتج `openssl rand -base64 32` (انظر التحذير أدناه) |
    | `NEXT_PUBLIC_SITE_URL` | رابط المتجر، مثل `https://nitro-store.up.railway.app` أو نطاقك الخاص |
-   | `STRIPE_SECRET_KEY` | `sk_live_...` |
-   | `STRIPE_WEBHOOK_SECRET` | `whsec_...` |
+   | `TAP_SECRET_KEY` | `sk_live_...` من Tap (مدى، KNET، Apple Pay) |
+   | `STRIPE_SECRET_KEY` | `sk_live_...` (اختياري، للبطاقات الدولية) |
+   | `STRIPE_WEBHOOK_SECRET` | `whsec_...` (مع Stripe فقط) |
    | `RESEND_API_KEY` | مفتاح Resend |
    | `EMAIL_FROM` | `Nitro Store <orders@yourdomain.com>` |
    | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | بيانات أول مدير |
@@ -113,7 +150,7 @@ Next.js 16 (App Router) - React 19 - TypeScript - Prisma 6 - PostgreSQL - Stripe
    > **تحذير مهم:** لا تغيّر `INVENTORY_ENCRYPTION_KEY` أبداً بعد رفع أي مخزون، وإلا تصبح جميع الأكواد وبيانات الحسابات المخزنة غير قابلة للقراءة نهائياً. احفظ نسخة منه في مكان آمن.
 
 5. من **Settings → Networking** اضغط **Generate Domain** (أو اربط نطاقك)، وتأكد أن `NEXT_PUBLIC_SITE_URL` يطابقه. هذا المتغير يُضمَّن وقت البناء، لذا أعد النشر (Redeploy) بعد تغييره.
-6. في لوحة Stripe أنشئ الـ Webhook على `https://<نطاقك>/api/stripe/webhook` بالأحداث المذكورة أعلاه.
+6. إن استخدمت Stripe فأنشئ الـ Webhook على `https://<نطاقك>/api/stripe/webhook` بالأحداث المذكورة أعلاه. إشعارات Tap تصل تلقائياً إلى `https://<نطاقك>/api/tap/webhook`.
 7. انتظر اكتمال النشر (الـ migrations تُطبَّق تلقائياً قبل التشغيل)، ثم شغّل البيانات الأولية **مرة واحدة** من جهازك بعد `npm install` و `railway link`:
    ```bash
    railway run npm run db:seed
@@ -134,7 +171,8 @@ Next.js 16 (App Router) - React 19 - TypeScript - Prisma 6 - PostgreSQL - Stripe
 | بانتظار الدفع `PENDING` | أُنشئ الطلب ولم يكتمل الدفع |
 | مدفوع - بانتظار التسليم `PAID` | تم الدفع، وفيه خدمة أو منتج نفد مخزونه، ويحتاج تسليماً يدوياً أو "إعادة محاولة" بعد إضافة مخزون |
 | تم التسليم `FULFILLED` | سُلّمت كل المنتجات وأُرسل البريد للعميل |
-| فشل `FAILED` | انتهت جلسة الدفع أو فشل الدفع، ويُعاد المخزون المحجوز له إلى المتاح |
+| فشل `FAILED` | انتهت جلسة الدفع أو فشل الدفع، ويُعاد المخزون المحجوز ورصيد المحفظة واستخدام الكوبون |
+| مسترجع `REFUNDED` | استُرجع المبلغ إلى وسيلة الدفع أو المحفظة (انظر "الاسترجاع") |
 
 حالات المخزون: متاح `AVAILABLE` ← محجوز لطلب بانتظار الدفع `RESERVED` ← مباع `SOLD`. إذا حاول عميلان شراء آخر كود في نفس اللحظة، يحجزه أحدهما ويُرفض طلب الآخر برسالة "نفد من المخزون" قبل أن يدفع. لا يمكن أبداً أن يُسلَّم نفس الكود لعميلين.
 
@@ -149,15 +187,24 @@ node --conditions=react-server --import tsx scripts/verify-payments.mts
 
 يختبر السكربت: إنشاء طلب وتسليمه، رفض الكميات غير المتوفرة، 10 طلبات متزامنة على 5 أكواد فقط (5 تنجح و5 تُرفض، ولا يُباع أي كود مرتين)، تكرار التسليم المتزامن، معالجة الـ webhook الموقّع، تحرير الحجز عند انتهاء الجلسة أو فشل الدفع أو مرور 35 دقيقة أو فشل إنشاء جلسة Stripe، وحد الطلبات. ويحذف بيانات الاختبار بعد الانتهاء.
 
+فحص المحفظة والكوبونات وTap والاسترجاع (على قاعدة بيانات تجريبية منفصلة فقط، التفاصيل في رأس الملف):
+
+```bash
+R="node --conditions=react-server --import tsx scripts/verify-money.mts"
+$R --phase=unit                                   # بدون خادم
+npx next dev -p 3100 & $R --phase=dev             # وضع التطوير
+TAP_SECRET_KEY=sk_test_mock TAP_API_BASE=http://127.0.0.1:3199/v2 npx next dev -p 3100 & $R --phase=tap   # Tap وهمي يشغّله السكربت
+```
+
 </div>
 
 ---
 
 ## English
 
-**Nitro Store** is an Arabic (RTL) storefront for digital goods: game gift cards, subscriptions, pre-made game accounts and digital services. Customers pay with Stripe Checkout and instantly receive codes / account credentials from encrypted stock (AES-256-GCM).
+**Nitro Store** is an Arabic (RTL) storefront for digital goods: game gift cards, subscriptions, pre-made game accounts and digital services. Customers pay with Tap (mada, KNET, Apple Pay, Gulf cards), Stripe Checkout or their store wallet, can apply coupons, and instantly receive codes / account credentials from encrypted stock (AES-256-GCM).
 
-**Stack:** Next.js 16 App Router, React 19, TypeScript, Prisma 6 + PostgreSQL, Stripe, Resend (HTTP API), Railway.
+**Stack:** Next.js 16 App Router, React 19, TypeScript, Prisma 6 + PostgreSQL, Tap Payments, Stripe, Resend (HTTP API), Railway.
 
 **Local setup**
 
@@ -169,12 +216,16 @@ npm run db:seed               # idempotent: super admin, categories, sample prod
 npm run dev                   # http://localhost:3000, admin at /admin
 ```
 
-With `STRIPE_SECRET_KEY` empty and `NODE_ENV` not `production`, checkout runs in **dev mode**: orders are marked paid and delivered immediately. In production without Stripe, checkout returns 503.
+With no payment key (`TAP_SECRET_KEY`, `STRIPE_SECRET_KEY`) and `NODE_ENV` not `production`, checkout and wallet top-ups run in **dev mode**: paid immediately, no real charge. In production without a gateway, only fully wallet-paid orders go through; other checkouts return 503.
 
 **Payments & delivery**
 
-- `POST /api/checkout` `{ email, items: [{ variantId, quantity }] }` → `{ url }` or `{ error }`. Prices, stock and active flags come from the database; duplicate lines are merged; 1–20 lines, quantity 1–10; 10 requests/min per IP. The order, its items and a **reservation** of every stock unit (`AVAILABLE → RESERVED`, linked to the order item) are written in one transaction; if any line can't be fully reserved the whole checkout is rolled back with a 409, so customers can only pay for stock that exists. If the Stripe session can't be created, the order is failed and its reservation released.
-- Reservations are released (order → `FAILED`) on `checkout.session.expired` / `checkout.session.async_payment_failed`, and every checkout request first sweeps PENDING orders older than 35 minutes (`releaseStaleReservations()`) in case a webhook was lost. A paid webhook that arrives late for such an order still moves it `FAILED → PAID` and delivers from AVAILABLE stock.
+- `POST /api/checkout` `{ email?, items: [{ variantId, quantity }], couponCode?, useWallet?, provider?: "TAP" | "STRIPE" }` → `{ url }` or `{ error }`. Signed-in customers buy under their account email (body email ignored; `useWallet` requires a session). Prices come from the database (`quoteCart()` in `src/lib/pricing.ts`); duplicate lines are merged; 1–20 lines, quantity 1–10; 10 requests/min per IP. One transaction reserves every stock unit (`AVAILABLE → RESERVED`), redeems the coupon under a row lock (maxUses / perCustomerLimit hold under concurrency), debits the wallet under a row lock and creates the order (`subtotal - discount = total`, `total - walletApplied` is charged). Fully wallet-paid orders are delivered at once (`paymentProvider = WALLET`); otherwise a Tap charge or Stripe session is created for the remainder. If that fails, the order is failed and stock, wallet debit and coupon use are released.
+- Every `PENDING → FAILED` path (`failPendingOrder()`: Stripe expiry / async failure, Tap final failure, provider error, the 35-minute sweep run by each checkout) releases stock, returns the wallet debit (ledger `REFUND`) and releases the coupon use exactly once, in the transaction that changes the status. A payment confirmed late moves the order `FAILED → PAID`, takes wallet and coupon again and delivers; if the wallet no longer covers its part the order stays `PAID` without automatic delivery.
+- Tap: `POST /api/tap/webhook` (set automatically as the charge's `post.url`; register `https://<domain>/api/tap/webhook` if Tap asks) and `GET /api/tap/return?tap_id=chg_…` (buyer return, 303 to the order page or `/account?topup=…`). Neither body nor query is trusted: the charge is re-fetched with `TAP_SECRET_KEY` and applied only if `CAPTURED` with matching amount, currency and metadata. Amounts convert per currency decimals (3 for KWD/BHD/OMR/JOD/TND/LYD/IQD).
+- Wallet (`src/lib/wallet.ts`): append-only ledger, customer row locked for every movement, never negative. `POST /api/wallet/topup` `{ amountCents: 500–50000 step 100, provider? }` (session required) credits once on confirmed payment.
+- Refunds (`refundOrderPayment()` in `src/lib/payments`): `ORIGINAL` refunds the gateway part via Tap/Stripe and returns the wallet part to the wallet; `WALLET` credits the whole order to the wallet. Runs once under the order row lock, sets `REFUNDED` + `refundedAt`, releases leftover reservations, audited.
+- Coupons: `/admin/coupons` (percent with optional cap, or fixed; min subtotal, max uses, per-customer limit, dates, category/product scope). `usedCount` counts redemptions on non-FAILED orders.
 - `POST /api/stripe/webhook` verifies the signature and handles `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`. Local testing: `stripe listen --forward-to localhost:3000/api/stripe/webhook`.
 - `GET /api/health` → `{ ok: true }` after `SELECT 1`.
 - `src/lib/fulfillment.ts`: `markOrderPaid`, `fulfillOrder`, `refreshOrderStatus`, `reserveStock`, `failPendingOrder`, `releaseOrderReservations`, `releaseStaleReservations`. `fulfillOrder` promotes the order's reserved units to `SOLD` and only falls back to AVAILABLE stock (claimed with `SELECT ... FOR UPDATE SKIP LOCKED`) when the reservation was released. It runs one transaction per order item and locks the order item row first, so webhook retries and the admin "retry" button can run concurrently without double delivery. Shortfalls leave the order in `PAID` for manual delivery. Only the caller that moves an order to `FULFILLED` sends the delivery email, which contains the private order link, never the codes.
@@ -182,8 +233,8 @@ With `STRIPE_SECRET_KEY` empty and `NODE_ENV` not `production`, checkout runs in
 **Deploying on Railway**
 
 1. New Project → Deploy from GitHub repo; add a PostgreSQL database.
-2. Set variables: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `AUTH_SECRET`, `INVENTORY_ENCRYPTION_KEY` (**never change it once stock exists**: existing stock would become unreadable), `NEXT_PUBLIC_SITE_URL` (inlined at build time, so redeploy after changing it), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `NEXT_PUBLIC_SUPPORT_EMAIL`, `NEXT_PUBLIC_WHATSAPP_NUMBER`, `TZ` (e.g. `Asia/Riyadh`).
+2. Set variables: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `AUTH_SECRET`, `INVENTORY_ENCRYPTION_KEY` (**never change it once stock exists**: existing stock would become unreadable), `NEXT_PUBLIC_SITE_URL` (inlined at build time, so redeploy after changing it), `TAP_SECRET_KEY` and/or `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `NEXT_PUBLIC_SUPPORT_EMAIL`, `NEXT_PUBLIC_WHATSAPP_NUMBER`, `TZ` (e.g. `Asia/Riyadh`).
 3. `railway.json` builds with `npm run build`, runs `npx prisma migrate deploy` before each deploy, starts with `npm run start`, health-checks `/api/health` and restarts on failure.
-4. Generate a domain, then add the Stripe webhook endpoint `https://<domain>/api/stripe/webhook`.
+4. Generate a domain, then (Stripe only) add the webhook endpoint `https://<domain>/api/stripe/webhook`. Tap notifications go to `https://<domain>/api/tap/webhook` automatically.
 5. Seed once: `railway run npm run db:seed`. If your machine can't reach `postgres.railway.internal`, use the public URL (`railway run sh -c 'DATABASE_URL="$DATABASE_PUBLIC_URL" npm run db:seed'` after adding `DATABASE_PUBLIC_URL=${{Postgres.DATABASE_PUBLIC_URL}}`) or `railway ssh`. Use `SEED_SAMPLE_PRODUCTS=false` to skip the sample catalogue, and remove `DEMO-` stock before going live.
 6. Sign in at `/admin`.

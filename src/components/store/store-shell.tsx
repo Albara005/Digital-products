@@ -1,10 +1,20 @@
+import type { HeaderAccount } from "./account-button";
 import { CartProvider } from "./cart-provider";
 import type { NavCategory } from "./category-nav";
 import { StoreFooter } from "./store-footer";
 import { StoreHeader } from "./store-header";
 
 /** Storefront chrome. Used by the (store) layout and by the root 404 (which has no DB access). */
-export function StoreShell({ categories, children }: { categories: NavCategory[]; children: React.ReactNode }) {
+export function StoreShell({
+  categories,
+  account,
+  children,
+}: {
+  categories: NavCategory[];
+  /** Signed-in state for the header; omitted where no session can be read (static 404). */
+  account?: HeaderAccount;
+  children: React.ReactNode;
+}) {
   return (
     <CartProvider>
       <a
@@ -13,7 +23,7 @@ export function StoreShell({ categories, children }: { categories: NavCategory[]
       >
         تخطَّ إلى المحتوى
       </a>
-      <StoreHeader categories={categories} />
+      <StoreHeader categories={categories} account={account} />
       <main id="main" className="flex-1">
         {children}
       </main>

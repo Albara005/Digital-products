@@ -2,13 +2,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MAX_LINE_QUANTITY } from "@/lib/cart";
-import { IconBolt, IconHeadset, IconLock, IconShieldCheck, IconSparkles } from "@/components/store/icons";
+import { siteUrl } from "@/lib/email";
+import { IconBolt, IconHeadset, IconLock, IconShieldCheck, IconSparkles, IconStar } from "@/components/store/icons";
 import { ProductGrid } from "@/components/store/product-card";
 import { ProductMedia } from "@/components/store/product-media";
 import { PurchasePanel } from "@/components/store/purchase-panel";
+import { ReviewList } from "@/components/store/review-list";
 import { categoryHref, decodeSlug, formatWarranty, productHref, truncate } from "@/components/store/site";
-import { SectionHeading, TypeBadge } from "@/components/store/ui";
+import { Stars, formatRating, reviewCountLabel } from "@/components/store/stars";
+import { EmptyState, SectionHeading, TypeBadge } from "@/components/store/ui";
 import { getProductBySlug, getRelatedProducts } from "../../_lib/queries";
+import { type RatingBreakdown, getApprovedReviews, getRatingBreakdown } from "../../_lib/reviews";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +43,11 @@ export default async function ProductPage({ params }: Props) {
   const product = await getProductBySlug(decodeSlug(slug));
   if (!product) notFound();
 
-  const related = await getRelatedProducts(product.categoryId, product.id, 4);
+  const [related, rating, firstReviews] = await Promise.all([
+    getRelatedProducts(product.categoryId, product.id, 4),
+    getRatingBreakdown(product.id),
+    getApprovedReviews(product.id, 0),
+  ]);
   const isService = product.type === "SERVICE";
   const warranty = product.type === "ACCOUNT" && product.warrantyHours ? formatWarranty(product.warrantyHours) : null;
 
@@ -53,8 +61,15 @@ export default async function ProductPage({ params }: Props) {
     { icon: IconHeadset, title: "دعم 24/7", text: "تواجه مشكلة؟ تواصل معنا وسنساعدك بسرعة." },
   ];
 
+  const jsonLd = productJsonLd(product, rating);
+
   return (
     <div className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 sm:pt-10">
+      <script
+        type="application/ld+json"
+        // Escaping "<" keeps product text from ever closing the script tag.
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
+      />
       <nav aria-label="مسار التنقل" className="mb-6 flex flex-wrap items-center gap-2 text-xs text-muted">
         <Link href="/" className="hover:text-volt">
           الرئيسية
@@ -100,6 +115,19 @@ export default async function ProductPage({ params }: Props) {
 
           <h1 className="mt-4 text-3xl leading-tight font-bold sm:text-4xl">{product.name}</h1>
 
+          {rating.count > 0 ? (
+            <a
+              href="#reviews"
+              className="mt-3 inline-flex items-center gap-2 rounded-lg text-sm text-muted transition hover:text-text"
+            >
+              <Stars value={rating.average} className="size-4" />
+              <span dir="ltr" className="font-display font-bold text-text tabular-nums">
+                {formatRating(rating.average)}
+              </span>
+              <span className="underline decoration-border underline-offset-4">({reviewCountLabel(rating.count)})</span>
+            </a>
+          ) : null}
+
           <div className="mt-8">
             {product.variants.length > 0 ? (
               <PurchasePanel
@@ -141,6 +169,24 @@ export default async function ProductPage({ params }: Props) {
         </div>
       </div>
 
+      <section id="reviews" aria-label="تقييمات العملاء" className="scroll-mt-32 pt-16 sm:pt-24">
+        <SectionHeading eyebrow="Reviews" title="تقييمات العملاء" description="تقييمات من مشترين موثّقين استلموا طلباتهم." />
+        {rating.count === 0 ? (
+          <div className="mt-8">
+            <EmptyState
+              icon={<IconStar className="size-7" />}
+              title="لا توجد تقييمات بعد"
+              description="بعد استلام طلبك يمكنك تقييم المنتج من صفحة الطلب، وسيظهر تقييمك هنا بعد المراجعة."
+            />
+          </div>
+        ) : (
+          <div className="mt-8 grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start">
+            <RatingSummaryCard rating={rating} />
+            <ReviewList productId={product.id} initial={firstReviews.reviews} initialHasMore={firstReviews.hasMore} />
+          </div>
+        )}
+      </section>
+
       {related.length > 0 ? (
         <section className="pt-16 sm:pt-24">
           <SectionHeading
@@ -159,4 +205,90 @@ export default async function ProductPage({ params }: Props) {
       ) : null}
     </div>
   );
+}
+
+function RatingSummaryCard({ rating }: { rating: RatingBreakdown }) {
+  return (
+    <div className="card p-5 lg:sticky lg:top-32">
+      <div className="flex items-center gap-4">
+        <p dir="ltr" className="font-display text-5xl font-bold text-volt tabular-nums">
+          {formatRating(rating.average)}
+        </p>
+        <div>
+          <Stars value={rating.average} className="size-5" />
+          <p className="mt-1 text-xs text-muted">{reviewCountLabel(rating.count)}</p>
+        </div>
+      </div>
+      <ul className="mt-5 space-y-2" aria-label="توزيع التقييمات">
+        {[5, 4, 3, 2, 1].map((stars) => {
+          const n = rating.distribution[stars - 1];
+          const pct = rating.count ? Math.round((n / rating.count) * 100) : 0;
+          return (
+            <li key={stars} className="flex items-center gap-3 text-xs">
+              <span className="flex w-8 shrink-0 items-center gap-1 text-muted">
+                <span dir="ltr" className="font-display font-bold text-text">
+                  {stars}
+                </span>
+                <IconStar filled className="size-3 text-volt" />
+              </span>
+              <span className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
+                <span className="block h-full rounded-full bg-volt" style={{ width: `${pct}%` }} />
+              </span>
+              <span dir="ltr" className="w-9 shrink-0 text-end font-display text-muted tabular-nums">
+                {pct}%
+              </span>
+              <span className="sr-only">
+                {stars} نجوم: {n}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+type ProductForJsonLd = NonNullable<Awaited<ReturnType<typeof getProductBySlug>>>;
+
+/** schema.org Product for rich results; aggregateRating only when there are approved reviews. */
+function productJsonLd(product: ProductForJsonLd, rating: RatingBreakdown) {
+  const base = siteUrl();
+  const url = `${base}${productHref(product.slug)}`;
+  const currency = product.variants[0]?.currency ?? "USD";
+  const prices = product.variants.filter((v) => v.currency === currency).map((v) => v.priceCents / 100);
+  const inStock = product.type === "SERVICE" || product.variants.some((v) => v.available > 0);
+  return {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: product.name,
+    url,
+    sku: product.id,
+    category: product.category.name,
+    ...(product.description ? { description: truncate(product.description, 500) } : {}),
+    ...(product.imageUrl ? { image: new URL(product.imageUrl, `${base}/`).href } : {}),
+    ...(prices.length > 0
+      ? {
+          offers: {
+            "@type": "AggregateOffer",
+            priceCurrency: currency,
+            lowPrice: Math.min(...prices).toFixed(2),
+            highPrice: Math.max(...prices).toFixed(2),
+            offerCount: prices.length,
+            availability: inStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+            url,
+          },
+        }
+      : {}),
+    ...(rating.count > 0
+      ? {
+          aggregateRating: {
+            "@type": "AggregateRating",
+            ratingValue: formatRating(rating.average),
+            reviewCount: rating.count,
+            bestRating: 5,
+            worstRating: 1,
+          },
+        }
+      : {}),
+  };
 }

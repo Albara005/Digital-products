@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import type { Prisma, ProductType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { type RatingSummary, getRatingSummaries } from "./reviews";
 
 // Storefront reads. Every query uses an explicit `select`: inventory payloads are
 // never loaded here (only the verified order page touches them).
@@ -43,9 +44,11 @@ export type ProductCardData = {
   hasPriceRange: boolean;
   /** Units available across variants; services report Infinity. */
   available: number;
+  /** Approved reviews only; null when the product has none. */
+  rating: RatingSummary | null;
 };
 
-function toCard(row: CardRow): ProductCardData | null {
+function toCard(row: CardRow): Omit<ProductCardData, "rating"> | null {
   if (row.variants.length === 0) return null;
   const cheapest = row.variants.reduce((min, v) => (v.priceCents < min.priceCents ? v : min));
   const available =
@@ -66,8 +69,16 @@ function toCard(row: CardRow): ProductCardData | null {
   };
 }
 
-function toCards(rows: CardRow[]) {
-  return rows.map(toCard).filter((c): c is ProductCardData => c !== null);
+/** Builds the cards and attaches their ratings with one grouped query for the whole grid. */
+async function toCards(rows: CardRow[]): Promise<ProductCardData[]> {
+  const cards = rows.map(toCard).filter((c): c is Omit<ProductCardData, "rating"> => c !== null);
+  if (cards.length === 0) return [];
+  const ratings = await getRatingSummaries(cards.map((c) => c.id)).catch((err: unknown) => {
+    // Ratings are decoration: a failure here must not hide the catalogue.
+    console.error("[store] Failed to load product ratings", err);
+    return new Map<string, RatingSummary>();
+  });
+  return cards.map((c) => ({ ...c, rating: ratings.get(c.id) ?? null }));
 }
 
 /** Only products that can actually be bought are listed. */
@@ -114,7 +125,7 @@ export async function getCategoryProducts(categoryId: string, sort: CategorySort
     select: cardSelect,
     take: 200,
   });
-  const cards = toCards(rows);
+  const cards = await toCards(rows);
   // "From" price is derived from variants, so price sorting happens here.
   if (sort === "price-asc") cards.sort((a, b) => a.fromPrice.cents - b.fromPrice.cents);
   if (sort === "price-desc") cards.sort((a, b) => b.fromPrice.cents - a.fromPrice.cents);

@@ -201,6 +201,56 @@ export const IconRefresh = (p: IconProps) => (
   </Svg>
 );
 
+const STAR_PATH = "M12 2.8l2.84 5.75 6.35.93-4.6 4.48 1.09 6.32L12 17.3l-5.68 2.98 1.09-6.32-4.6-4.48 6.35-.93L12 2.8Z";
+
+export const IconStar = ({ filled = false, ...p }: IconProps & { filled?: boolean }) => (
+  <Svg {...p} fill={filled ? "currentColor" : "none"}>
+    <path d={STAR_PATH} />
+  </Svg>
+);
+
+export const IconWallet = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3" />
+    <path d="M3 7h16a2 2 0 0 1 2 2v7h-5a3 3 0 0 1 0-6h5" />
+    <path d="M16 13h.01" />
+  </Svg>
+);
+
+export const IconReceipt = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M5 21V4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v17l-3-2-2.5 2L12 19l-1.5 2L8 19l-3 2Z" />
+    <path d="M9 8h6M9 12h6" />
+  </Svg>
+);
+
+export const IconLogout = ({ className = "size-5", ...p }: IconProps) => (
+  <Svg className={`${className} rtl:-scale-x-100`} {...p}>
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <path d="m16 17 5-5-5-5M21 12H9" />
+  </Svg>
+);
+
+export const IconTag = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z" />
+    <path d="M7.5 7.5h.01" />
+  </Svg>
+);
+
+export const IconX = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M18 6 6 18M6 6l12 12" />
+  </Svg>
+);
+
+export const IconCard = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="2" y="5" width="20" height="14" rx="2" />
+    <path d="M2 10h20M6 15h4" />
+  </Svg>
+);
+
 export const IconSpinner = ({ className = "size-5", ...p }: IconProps) => (
   <Svg className={`${className} animate-spin`} {...p}>
     <path d="M21 12a9 9 0 1 1-9-9" />

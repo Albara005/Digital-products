@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { audit } from "@/lib/audit";
 import { slugify } from "@/lib/format";
 import type { FormState } from "../../_lib/form-state";
 import { requireAdminAccess } from "../../_lib/guard";
@@ -18,7 +19,7 @@ const categorySchema = z.object({
 });
 
 export async function saveCategory(_prev: FormState, formData: FormData): Promise<FormState> {
-  await requireAdminAccess();
+  const session = await requireAdminAccess();
   const parsed = categorySchema.safeParse({
     id: str(formData, "id") || undefined,
     name: str(formData, "name"),
@@ -32,14 +33,21 @@ export async function saveCategory(_prev: FormState, formData: FormData): Promis
   if (!slug) return fail("تعذّر توليد رابط صالح، اكتب الرابط يدوياً.", { slug: "رابط غير صالح" });
 
   const data = { name, slug, description: description || null, sortOrder };
+  let savedId: string;
   try {
-    if (id) await prisma.category.update({ where: { id }, data });
-    else await prisma.category.create({ data });
+    if (id) savedId = (await prisma.category.update({ where: { id }, data, select: { id: true } })).id;
+    else savedId = (await prisma.category.create({ data, select: { id: true } })).id;
   } catch (e) {
     if (isUniqueViolation(e)) return fail("هذا الرابط مستخدم لفئة أخرى.", { slug: "الرابط مستخدم مسبقاً" });
     if (isNotFound(e)) return fail("الفئة غير موجودة (ربما حُذفت).");
     throw e;
   }
+  await audit(
+    { adminId: session.adminId, email: session.email },
+    id ? "category.update" : "category.create",
+    { type: "category", id: savedId },
+    { name, slug },
+  );
 
   revalidatePath("/", "layout");
   if (id) redirect("/admin/categories");
@@ -47,13 +55,13 @@ export async function saveCategory(_prev: FormState, formData: FormData): Promis
 }
 
 export async function deleteCategory(_prev: FormState, formData: FormData): Promise<FormState> {
-  await requireAdminAccess();
+  const session = await requireAdminAccess();
   const parsed = idSchema.safeParse(str(formData, "id"));
   if (!parsed.success) return fromZod(parsed.error);
 
   const category = await prisma.category.findUnique({
     where: { id: parsed.data },
-    select: { name: true, _count: { select: { products: true } } },
+    select: { name: true, slug: true, _count: { select: { products: true } } },
   });
   if (!category) return fail("الفئة غير موجودة.");
   if (category._count.products > 0) {
@@ -69,6 +77,10 @@ export async function deleteCategory(_prev: FormState, formData: FormData): Prom
     if (isNotFound(e)) return fail("الفئة غير موجودة.");
     throw e;
   }
+  await audit({ adminId: session.adminId, email: session.email }, "category.delete", { type: "category", id: parsed.data }, {
+    name: category.name,
+    slug: category.slug,
+  });
   revalidatePath("/", "layout");
   return ok("تم حذف الفئة.");
 }

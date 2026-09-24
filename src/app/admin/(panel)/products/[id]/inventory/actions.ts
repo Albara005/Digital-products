@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { audit } from "@/lib/audit";
 import { decrypt, encrypt } from "@/lib/crypto";
 import type { FormState } from "../../../../_lib/form-state";
 import { requireAdminAccess } from "../../../../_lib/guard";
@@ -23,7 +24,7 @@ function preview(value: string) {
 }
 
 export async function addInventory(_prev: FormState, formData: FormData): Promise<FormState> {
-  await requireAdminAccess();
+  const session = await requireAdminAccess();
   const parsed = addSchema.safeParse({
     productId: str(formData, "productId"),
     variantId: str(formData, "variantId"),
@@ -77,36 +78,70 @@ export async function addInventory(_prev: FormState, formData: FormData): Promis
   const result = await prisma.inventoryItem.createMany({
     data: items.map((payload) => ({ variantId: variant.id, payload: encrypt(payload) })),
   });
+  // Count only: the codes themselves never go into the audit log
+  await audit({ adminId: session.adminId, email: session.email }, "inventory.add", { type: "product", id: productId }, {
+    variantId: variant.id,
+    variantLabel: variant.label,
+    count: result.count,
+  });
 
   revalidatePath("/", "layout");
   return ok(`تمت إضافة ${result.count} عنصر إلى «${variant.label}».`);
 }
 
 export async function deleteInventoryItem(_prev: FormState, formData: FormData): Promise<FormState> {
-  await requireAdminAccess();
+  const session = await requireAdminAccess();
   const parsed = idSchema.safeParse(str(formData, "id"));
   if (!parsed.success) return fromZod(parsed.error);
 
+  const item = await prisma.inventoryItem.findUnique({
+    where: { id: parsed.data },
+    select: { variantId: true, variant: { select: { productId: true, label: true } } },
+  });
   // Only unsold stock can be removed; sold/reserved units are order history.
   const res = await prisma.inventoryItem.deleteMany({ where: { id: parsed.data, status: "AVAILABLE" } });
   if (res.count === 0) return fail("لا يمكن حذف هذا العنصر (ربما تم حجزه أو بيعه للتو).");
+  await audit({ adminId: session.adminId, email: session.email }, "inventory.delete", { type: "inventory", id: parsed.data }, {
+    productId: item?.variant.productId ?? null,
+    variantId: item?.variantId ?? null,
+    variantLabel: item?.variant.label ?? null,
+  });
 
   revalidatePath("/", "layout");
   return ok("تم الحذف.");
 }
 
+/** Decrypts one stock unit for display. Sensitive: every successful reveal is audited (id only, never the value). */
 export async function revealInventoryItem(
   id: string,
 ): Promise<{ ok: true; value: string } | { ok: false; message: string }> {
-  await requireAdminAccess();
+  const session = await requireAdminAccess();
   const parsed = idSchema.safeParse(id);
   if (!parsed.success) return { ok: false, message: "معرّف غير صالح" };
 
-  const item = await prisma.inventoryItem.findUnique({ where: { id: parsed.data }, select: { payload: true } });
+  const item = await prisma.inventoryItem.findUnique({
+    where: { id: parsed.data },
+    select: {
+      payload: true,
+      status: true,
+      variantId: true,
+      variant: { select: { productId: true, label: true } },
+      orderItem: { select: { orderId: true } },
+    },
+  });
   if (!item) return { ok: false, message: "العنصر غير موجود" };
+  let value: string;
   try {
-    return { ok: true, value: decrypt(item.payload) };
+    value = decrypt(item.payload);
   } catch {
     return { ok: false, message: "تعذّر فك التشفير — تحقق من مفتاح التشفير" };
   }
+  await audit({ adminId: session.adminId, email: session.email }, "inventory.reveal", { type: "inventory", id: parsed.data }, {
+    productId: item.variant.productId,
+    variantId: item.variantId,
+    variantLabel: item.variant.label,
+    status: item.status,
+    orderId: item.orderItem?.orderId ?? null,
+  });
+  return { ok: true, value };
 }
