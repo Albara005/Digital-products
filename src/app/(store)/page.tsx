@@ -105,7 +105,7 @@ export default async function HomePage() {
 
 function Hero({ t }: { t: Dictionary }) {
   return (
-    <section className="relative isolate overflow-hidden border-b border-border">
+    <section className="relative isolate overflow-hidden border-b border-border bg-bg">
       {/* Backdrop: volt glow + fading grid */}
       <div
         aria-hidden="true"
@@ -159,44 +159,27 @@ function Hero({ t }: { t: Dictionary }) {
           </dl>
         </div>
 
-        <HeroVisual t={t} />
+        <HeroVisual />
       </div>
     </section>
   );
 }
 
-/** Decorative "delivered code" ticket beside the brand mark. Purely illustrative. */
-function HeroVisual({ t }: { t: Dictionary }) {
+/** Brand artwork: the Nitro crew with a delivered gift card. Its black background blends into the page. */
+function HeroVisual() {
   return (
-    <div aria-hidden="true" className="relative mx-auto w-full max-w-md select-none lg:max-w-none">
-      <div className="absolute -inset-10 -z-10 rounded-full bg-volt/10 blur-3xl" />
-      <div className="relative mx-auto aspect-square w-56 sm:w-72 lg:w-80">
-        <Image
-          src="/brand/nitro-logo.webp"
-          alt=""
-          fill
-          priority
-          sizes="(min-width: 1024px) 320px, 288px"
-          className="object-contain mix-blend-screen"
-        />
-      </div>
-
-      <div className="relative -mt-10 rotate-[-3deg] sm:-mt-14 lg:ms-10">
-        <div className="card overflow-hidden shadow-[0_30px_80px_-30px_rgba(212,255,61,0.35)]">
-          <div className="flex items-center justify-between border-b border-dashed border-border px-5 py-3">
-            <span dir="ltr" className="font-display text-xs font-bold tracking-[0.2em] text-muted uppercase">
-              Gift Card · 50 USD
-            </span>
-            <span className="badge bg-success/15 text-success">{t.home.delivered}</span>
-          </div>
-          <div className="flex items-center justify-between gap-4 px-5 py-4">
-            <span dir="ltr" className="font-mono text-lg font-bold tracking-widest text-volt sm:text-xl">
-              NTRO-7K2F-Q9XA
-            </span>
-            <span className="rounded-md border border-border px-2 py-1 text-xs text-muted">{t.home.copy}</span>
-          </div>
-        </div>
-      </div>
+    <div aria-hidden="true" className="relative mx-auto w-full max-w-xl select-none lg:max-w-none">
+      {/* Solid backing so the grid doesn't show through the artwork's dark areas under mix-blend-lighten */}
+      <div className="absolute inset-[4%] -z-[5] rounded-[45%] bg-bg blur-xl" />
+      <Image
+        src="/brand/hero-mascots.webp"
+        alt=""
+        width={1019}
+        height={710}
+        priority
+        sizes="(min-width: 1280px) 560px, (min-width: 1024px) 45vw, 92vw"
+        className="h-auto w-full mix-blend-lighten"
+      />
     </div>
   );
 }
