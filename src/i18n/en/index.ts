@@ -76,9 +76,9 @@ export const en: Dictionary = {
     emptyText: "We're adding products right now. Check back soon, or contact us if you're looking for something specific.",
     featuredTitle: "Most popular",
     featuredText: "Hand-picked products our gamers keep coming back for.",
-    live: "Instant top-ups, 24/7",
-    heroLine1: "Top up. Play on.",
-    heroLine2: "At Nitro speed.",
+    live: "Your premier destination for digital gaming",
+    heroLine1: "The gaming world,",
+    heroLine2: "with a royal touch.",
     heroText:
       "Steam packages, PlayStation games, streaming subscriptions and PC gear — everything a gamer needs in one place, delivered seconds after you pay.",
     shopNow: "Shop now",
