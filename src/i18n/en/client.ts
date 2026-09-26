@@ -223,6 +223,8 @@ export const enClient: ClientDictionary = {
     home: "Home",
   },
   transition: {
+    lead: "",
+    accent: "Loading",
     label: "Loading…",
   },
 };

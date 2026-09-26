@@ -227,6 +227,8 @@ export const arClient = {
     home: "الرئيسية",
   },
   transition: {
+    lead: "جارٍ ",
+    accent: "الانتقال",
     label: "جارٍ الانتقال…",
   },
 };

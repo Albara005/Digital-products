@@ -1,243 +1,369 @@
-/* Nitro page transition: black stage, glowing N, volt orbit, speed streaks and orbiting tiles. */
+/*
+ * Nitro page transition: black warp scene with the glowing N inside a tilted orbit ring, glass
+ * tiles (PlayStation, crown, card, Steam, Xbox, gift) flying out around it, caption and progress.
+ * Everything is sized in --u (1% of a 16:9 stage) so desktop and phones keep the composition.
+ */
 
 .overlay {
+  --u: min(1cqw, 1.778cqh);
   position: fixed;
   inset: 0;
   z-index: 100;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2rem;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 42%, rgba(212, 255, 61, 0.14), transparent 32%),
-    radial-gradient(circle at 50% 45%, #0f1400 0%, #060706 55%, #000 100%);
-  animation: fade-in 140ms ease-out both;
+  container-type: size;
+  background: #000;
   cursor: progress;
+  animation: fade-in 120ms ease-out both;
+}
+@media (orientation: portrait) {
+  .overlay {
+    --u: min(2.4cqw, 1.1cqh);
+  }
 }
 
 .leaving {
-  animation: fade-out 180ms ease-in both;
   pointer-events: none;
+  animation: fade-out 180ms ease-in both;
 }
 
-/* Receding perspective grid on the floor */
-.grid {
+/* Deep green haze around the centre */
+.haze {
   position: absolute;
-  inset: 45% -30% -30%;
+  inset: 0;
   background:
-    repeating-linear-gradient(90deg, transparent 0 58px, rgba(212, 255, 61, 0.07) 58px 59px),
-    repeating-linear-gradient(0deg, transparent 0 58px, rgba(212, 255, 61, 0.05) 58px 59px);
-  transform: perspective(600px) rotateX(62deg);
-  transform-origin: top;
-  mask-image: linear-gradient(to bottom, black, transparent 85%);
-  animation: grid-run 0.6s linear infinite;
+    radial-gradient(38% 30% at 52% 46%, rgba(212, 255, 61, 0.14), transparent 70%),
+    radial-gradient(95% 55% at 50% 50%, rgba(36, 52, 0, 0.55), transparent 78%);
 }
 
-/* Horizontal light streaks shooting across */
-.streaks {
+/* ---- Warp streaks ---- */
+.warp {
   position: absolute;
   inset: 0;
 }
-.streaks span {
+.streak {
+  --rot: 0deg;
   position: absolute;
-  left: 0;
-  height: 2px;
-  width: 38vw;
+  top: calc(var(--y) * 1%);
+  width: calc(var(--len) * 1cqw);
+  height: max(1px, calc(var(--thick) * var(--u)));
   border-radius: 99px;
-  background: linear-gradient(90deg, transparent, rgba(212, 255, 61, 0.9), transparent);
-  filter: drop-shadow(0 0 6px rgba(212, 255, 61, 0.8));
+  filter: blur(calc(var(--blur) * var(--u)));
   opacity: 0;
-  animation: streak 0.55s cubic-bezier(0.3, 0.6, 0.4, 1) infinite;
+  animation: 460ms cubic-bezier(0.25, 0.6, 0.3, 1) var(--delay) infinite both;
 }
-.streaks span:nth-child(1) { top: 18%; animation-delay: 0ms; }
-.streaks span:nth-child(2) { top: 31%; width: 22vw; animation-delay: 90ms; }
-.streaks span:nth-child(3) { top: 44%; animation-delay: 200ms; height: 1px; }
-.streaks span:nth-child(4) { top: 57%; width: 28vw; animation-delay: 40ms; }
-.streaks span:nth-child(5) { top: 69%; animation-delay: 160ms; height: 1px; }
-.streaks span:nth-child(6) { top: 80%; width: 18vw; animation-delay: 260ms; }
-.streaks span:nth-child(7) { top: 11%; width: 16vw; animation-delay: 320ms; height: 1px; }
-
-.stage {
-  --size: min(64vw, 22rem);
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: var(--size);
-  height: var(--size);
+.left {
+  --rot: calc((50 - var(--y)) * 0.3deg);
+  right: 53%;
+  transform-origin: right center;
+  background: linear-gradient(to left, transparent, rgba(212, 255, 61, 0.95) 25%, rgba(212, 255, 61, 0.55) 70%, transparent);
+  animation-name: warp-left;
+}
+.right {
+  --rot: calc((50 - var(--y)) * -0.3deg);
+  left: 53%;
+  transform-origin: left center;
+  background: linear-gradient(to right, transparent, rgba(212, 255, 61, 0.95) 25%, rgba(212, 255, 61, 0.55) 70%, transparent);
+  animation-name: warp-right;
+}
+.left.white {
+  background: linear-gradient(to left, transparent, rgba(255, 255, 255, 0.6) 30%, rgba(255, 255, 255, 0.2) 75%, transparent);
+}
+.right.white {
+  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.6) 30%, rgba(255, 255, 255, 0.2) 75%, transparent);
 }
 
-.core {
+/* Horizontal light band behind the logo */
+.flare {
   position: absolute;
-  inset: 22%;
-  border-radius: 50%;
-  background: rgba(212, 255, 61, 0.16);
-  filter: blur(36px);
-  animation: pulse 0.5s ease-in-out infinite alternate;
+  left: 50%;
+  top: 46%;
+  width: 96cqw;
+  height: calc(16 * var(--u));
+  translate: -50% -50%;
+  background: radial-gradient(closest-side, rgba(212, 255, 61, 0.3), rgba(212, 255, 61, 0.07) 55%, transparent);
+  filter: blur(var(--u));
+  animation: flare 0.5s ease-in-out infinite alternate;
 }
 
-.orbit,
-.orbitInner {
+/* ---- Logo + orbit ring ---- */
+.emblem {
   position: absolute;
-  border-radius: 50%;
-  border: 2px solid transparent;
+  left: 50%;
+  top: 44%;
+  width: calc(23 * var(--u));
+  aspect-ratio: 1;
+  translate: -50% -50%;
 }
-.orbit {
-  inset: 4%;
-  border-color: rgba(212, 255, 61, 0.1);
-  border-top-color: var(--volt);
-  border-inline-end-color: rgba(212, 255, 61, 0.4);
-  filter: drop-shadow(0 0 10px rgba(212, 255, 61, 0.7));
-  animation: spin 0.9s linear infinite;
-}
-.orbitInner {
-  inset: 16%;
-  border-bottom-color: var(--volt);
-  border-inline-start-color: rgba(212, 255, 61, 0.3);
-  filter: drop-shadow(0 0 8px rgba(212, 255, 61, 0.6));
-  animation: spin 0.7s linear infinite reverse;
+@media (orientation: portrait) {
+  .emblem {
+    top: 40%;
+    width: calc(20 * var(--u));
+  }
 }
 
 .logo {
   position: relative;
-  width: 42%;
+  z-index: 1;
+  display: block;
+  width: 100%;
   height: auto;
-  filter: drop-shadow(0 0 10px rgba(212, 255, 61, 0.85)) drop-shadow(0 0 30px rgba(212, 255, 61, 0.45));
-  animation: logo-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  filter: drop-shadow(0 0 calc(0.8 * var(--u)) rgba(212, 255, 61, 0.75))
+    drop-shadow(0 0 calc(3.5 * var(--u)) rgba(212, 255, 61, 0.35));
+  animation:
+    logo-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both,
+    logo-glow 0.55s ease-in-out 0.35s infinite alternate;
 }
 
-/* Tiles sit on the orbit (angle set per tile) and float in */
-.tile {
-  --angle: 0deg;
+.ring {
+  --tilt: rotate(14deg) scaleY(0.3);
   position: absolute;
-  top: 50%;
-  left: 50%;
+  left: 54%;
+  top: 55%;
+  width: 150%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  transform: var(--tilt);
+  animation: ring-in 380ms cubic-bezier(0.2, 0.8, 0.2, 1) 40ms both;
+}
+.ringBack {
+  z-index: 0;
+}
+/* Front half passes over the logo */
+.ringFront {
+  z-index: 2;
+  clip-path: inset(50% 0 0 0);
+}
+.ringGlow,
+.ringArc,
+.ringDust {
+  position: absolute;
+  border-radius: 50%;
+}
+.ringGlow {
+  inset: 0;
+  border: calc(0.45 * var(--u)) solid rgba(212, 255, 61, 0.28);
+  box-shadow:
+    0 0 calc(2.5 * var(--u)) rgba(212, 255, 61, 0.45),
+    inset 0 0 calc(2 * var(--u)) rgba(212, 255, 61, 0.35);
+}
+/* Bright comet sweeping around the ellipse */
+.ringArc {
+  inset: 0;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 45%,
+    rgba(212, 255, 61, 0.25) 65%,
+    #d4ff3d 86%,
+    #f6ffd6 90%,
+    transparent 91%
+  );
+  mask: radial-gradient(closest-side, transparent 86%, #000 89%, #000 99%, transparent 100%);
+  filter: drop-shadow(0 0 calc(0.8 * var(--u)) #d4ff3d);
+  animation: spin 650ms linear infinite;
+}
+/* Sparkle dust trailing the ring */
+.ringDust {
+  inset: -7%;
+  border: calc(0.35 * var(--u)) dotted rgba(212, 255, 61, 0.35);
+  animation: spin 1.2s linear infinite reverse;
+}
+
+/* ---- Glass tiles ---- */
+.tile {
+  --x: 50;
+  --y: 50;
+  --s: 7;
+  --rx: 0deg;
+  --ry: 0deg;
+  --rz: 0deg;
+  --d: 0ms;
+  position: absolute;
+  left: calc(var(--x) * 1%);
+  top: calc(var(--y) * 1%);
+  width: calc(var(--s) * var(--u));
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  perspective: calc(60 * var(--u));
+  animation: tile-in 400ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--d) both;
+}
+.tileFace {
   display: grid;
   place-items: center;
-  width: 2.6rem;
-  height: 2.6rem;
-  margin: -1.3rem 0 0 -1.3rem;
-  border-radius: 0.75rem;
-  border: 1px solid rgba(212, 255, 61, 0.45);
-  background: rgba(20, 20, 20, 0.85);
-  color: var(--volt);
-  box-shadow: 0 0 18px -4px rgba(212, 255, 61, 0.6);
-  transform: rotate(var(--angle)) translateY(calc(var(--size) * -0.56)) rotate(calc(var(--angle) * -1));
-  animation: tile-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-.tile svg {
-  width: 55%;
-  height: 55%;
-}
-.tile:nth-of-type(1) { --angle: -30deg; animation-delay: 20ms; }
-.tile:nth-of-type(2) { --angle: 30deg; animation-delay: 40ms; }
-.tile:nth-of-type(3) { --angle: 90deg; animation-delay: 60ms; }
-.tile:nth-of-type(4) { --angle: 150deg; animation-delay: 80ms; }
-.tile:nth-of-type(5) { --angle: 210deg; animation-delay: 100ms; }
-.tile:nth-of-type(6) { --angle: 270deg; animation-delay: 120ms; }
-
-.caption {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  animation: rise 0.35s 60ms ease-out both;
-}
-.brand {
-  margin: 0;
-  font-size: clamp(1.5rem, 4vw, 2.25rem);
-  font-weight: 800;
-  line-height: 1.1;
-  color: #fff;
-}
-.brand span {
-  color: var(--volt);
-  text-shadow: 0 0 24px rgba(212, 255, 61, 0.5);
-}
-.label {
-  margin: 0;
-  font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.62);
-}
-.bar {
-  width: min(18rem, 60vw);
-  height: 4px;
-  margin-top: 0.25rem;
-  overflow: hidden;
-  border-radius: 99px;
-  background: rgba(255, 255, 255, 0.12);
-}
-.bar span {
-  display: block;
+  width: 100%;
   height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #a8cc2a, var(--volt), #efffb8);
-  box-shadow: 0 0 14px var(--volt);
+  border-radius: 22%;
+  border: 1px solid rgba(212, 255, 61, 0.5);
+  background:
+    linear-gradient(150deg, rgba(212, 255, 61, 0.22), transparent 35%),
+    linear-gradient(160deg, rgba(34, 38, 26, 0.95), rgba(6, 7, 5, 0.97));
+  box-shadow:
+    0 0 calc(2.4 * var(--u)) rgba(212, 255, 61, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    inset 0 0 calc(1.4 * var(--u)) rgba(212, 255, 61, 0.2),
+    calc(0.35 * var(--u)) calc(0.45 * var(--u)) 0 rgba(84, 110, 10, 0.75);
+  color: var(--volt);
+  transform: rotateY(var(--ry)) rotateX(var(--rx)) rotateZ(var(--rz));
+  animation: bob 0.9s ease-in-out 0.4s infinite alternate;
+}
+.tileFace svg {
+  width: 48%;
+  height: 48%;
+  filter: drop-shadow(0 0 calc(0.7 * var(--u)) rgba(212, 255, 61, 0.55));
+}
+.brandTile .tileFace {
+  color: #eceee8;
+}
+.brandTile .tileFace svg {
+  filter: drop-shadow(0 calc(0.2 * var(--u)) calc(0.4 * var(--u)) rgba(0, 0, 0, 0.7));
+}
+
+.playstation { --x: 20.6; --y: 35.6; --s: 8;   --rz: -8deg; --ry: 24deg;  --rx: 6deg;  --d: 30ms; }
+.crown       { --x: 34;   --y: 28;   --s: 6.2; --rz: 8deg;  --ry: 18deg;  --rx: -6deg; --d: 70ms; }
+.ghost       { --x: 19.5; --y: 51;   --s: 5.2; --rz: -6deg; --ry: 20deg;  --d: 110ms; }
+.card        { --x: 29.3; --y: 59.5; --s: 6.4; --rz: 10deg; --ry: 22deg;  --rx: -8deg; --d: 90ms; }
+.steam       { --x: 79;   --y: 35.6; --s: 7.4; --rz: 8deg;  --ry: -24deg; --rx: 6deg;  --d: 50ms; }
+.xbox        { --x: 73.4; --y: 57.4; --s: 7.6; --rz: -6deg; --ry: -22deg; --rx: -6deg; --d: 80ms; }
+.gift        { --x: 89.7; --y: 54;   --s: 6.6; --rz: -8deg; --ry: -24deg; --rx: 4deg;  --d: 120ms; }
+
+/* Out-of-focus tile deep on the left */
+.ghost {
+  opacity: 0.5;
+  filter: blur(calc(0.35 * var(--u)));
+}
+
+@media (orientation: portrait) {
+  .playstation { --x: 18; --y: 25; }
+  .crown       { --x: 44; --y: 14; }
+  .ghost       { --x: 7;  --y: 45; }
+  .card        { --x: 20; --y: 57; }
+  .steam       { --x: 82; --y: 23; }
+  .xbox        { --x: 78; --y: 57; }
+  .gift        { --x: 89; --y: 43; --s: 5.6; }
+}
+
+/* ---- Caption + progress ---- */
+.caption {
+  position: absolute;
+  left: 50%;
+  top: 71%;
+  margin: 0;
+  translate: -50% -50%;
+  white-space: nowrap;
+  font-size: max(1.1rem, calc(2.5 * var(--u)));
+  font-weight: 800;
+  line-height: 1.2;
+  color: #fff;
+  animation: rise 320ms ease-out 60ms both;
+}
+.caption span {
+  color: var(--volt);
+  text-shadow: 0 0 calc(1.6 * var(--u)) rgba(212, 255, 61, 0.55);
+}
+
+.bar {
+  position: absolute;
+  left: 50%;
+  top: 76.7%;
+  width: calc(27 * var(--u));
+  height: 2px;
+  translate: -50% -50%;
+  background: rgba(255, 255, 255, 0.16);
+  animation: rise 320ms ease-out 90ms both;
+}
+@media (orientation: portrait) {
+  .caption { top: 66%; }
+  .bar { top: 71%; width: calc(30 * var(--u)); }
+}
+.barFill {
+  position: absolute;
+  inset: 0 30% 0 0;
+  background: linear-gradient(90deg, rgba(212, 255, 61, 0.1), rgba(212, 255, 61, 0.6) 25%, #d4ff3d);
+  box-shadow: 0 0 calc(0.8 * var(--u)) #d4ff3d;
   transform-origin: left;
-  animation: progress 0.32s cubic-bezier(0.3, 0.7, 0.4, 1) both;
+  animation: progress 360ms cubic-bezier(0.3, 0.7, 0.4, 1) both;
 }
-:global([dir="rtl"]) .bar span {
-  transform-origin: right;
+.bar i {
+  position: absolute;
+  top: 50%;
+  width: max(6px, calc(0.7 * var(--u)));
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: #d4ff3d;
+  box-shadow: 0 0 calc(0.9 * var(--u)) #d4ff3d;
 }
-.leaving .bar span {
-  animation: none;
-  transform: scaleX(1);
-  transition: transform 120ms ease-out;
+.bar .barHead {
+  left: 70%;
+  width: max(4px, calc(0.45 * var(--u)));
+  background: #f6ffd6;
+  box-shadow: 0 0 calc(1.4 * var(--u)) calc(0.3 * var(--u)) #d4ff3d;
+  animation: head 360ms cubic-bezier(0.3, 0.7, 0.4, 1) both;
 }
 
-@media (max-width: 480px) {
-  .tile {
-    width: 2.2rem;
-    height: 2.2rem;
-    margin: -1.1rem 0 0 -1.1rem;
-  }
-}
-
-/* Reduced motion: keep the branded screen, drop the spinning and streaking */
+/* Reduced motion: keep the scene, drop the looping motion */
 @media (prefers-reduced-motion: reduce) {
-  .grid,
-  .streaks,
-  .orbit,
-  .orbitInner,
-  .core,
-  .logo,
-  .tile,
-  .caption {
+  .streak {
+    opacity: 0.7;
+    transform: rotate(var(--rot));
     animation: none;
   }
-  .streaks {
-    display: none;
+  .flare,
+  .ringArc,
+  .ringDust,
+  .tileFace,
+  .tile,
+  .ring,
+  .caption,
+  .bar,
+  .barFill,
+  .barHead {
+    animation: none;
+  }
+  .logo {
+    animation: none;
   }
 }
 
 @keyframes fade-in { from { opacity: 0; } }
-@keyframes fade-out { to { opacity: 0; transform: scale(1.03); } }
-@keyframes grid-run { to { background-position: 0 59px, 0 59px; } }
-@keyframes spin { to { transform: rotate(360deg); } }
-@keyframes pulse {
-  from { transform: scale(0.85); opacity: 0.55; }
-  to { transform: scale(1.15); opacity: 1; }
+@keyframes fade-out { to { opacity: 0; transform: scale(1.04); } }
+@keyframes spin { to { rotate: 360deg; } }
+@keyframes warp-left {
+  0% { opacity: 0; transform: rotate(var(--rot)) translateX(25%) scaleX(0.3); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--rot)) translateX(-95%) scaleX(1); }
+}
+@keyframes warp-right {
+  0% { opacity: 0; transform: rotate(var(--rot)) translateX(-25%) scaleX(0.3); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--rot)) translateX(95%) scaleX(1); }
+}
+@keyframes flare {
+  from { opacity: 0.7; scale: 0.92 1; }
+  to { opacity: 1; scale: 1.06 1.1; }
 }
 @keyframes logo-in {
-  0% { opacity: 0; transform: scale(0.55) rotate(-8deg); }
-  70% { opacity: 1; transform: scale(1.08) rotate(2deg); }
+  0% { opacity: 0; transform: scale(0.6) rotate(-10deg); }
+  65% { opacity: 1; transform: scale(1.07) rotate(2deg); }
   100% { opacity: 1; transform: none; }
+}
+@keyframes logo-glow {
+  to {
+    filter: drop-shadow(0 0 calc(1.2 * var(--u)) rgba(212, 255, 61, 0.95))
+      drop-shadow(0 0 calc(5 * var(--u)) rgba(212, 255, 61, 0.5));
+  }
+}
+@keyframes ring-in {
+  from { opacity: 0; transform: var(--tilt) scale(0.55); }
 }
 @keyframes tile-in {
   from {
     opacity: 0;
-    transform: rotate(var(--angle)) translateY(calc(var(--size) * -0.3)) rotate(calc(var(--angle) * -1)) scale(0.6);
+    transform: translate(calc((50 - var(--x)) * 0.55cqw), calc((44 - var(--y)) * 0.55cqh)) scale(0.35);
   }
 }
-@keyframes streak {
-  0% { opacity: 0; transform: translateX(-40vw); }
-  25% { opacity: 1; }
-  100% { opacity: 0; transform: translateX(130vw); }
+@keyframes bob {
+  to { transform: rotateY(var(--ry)) rotateX(var(--rx)) rotateZ(var(--rz)) translateY(calc(-0.6 * var(--u))); }
 }
-@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
-@keyframes progress {
-  from { transform: scaleX(0.05); }
-  to { transform: scaleX(0.85); }
-}
+@keyframes rise { from { opacity: 0; transform: translateY(calc(0.8 * var(--u))); } }
+@keyframes progress { from { transform: scaleX(0.12); } }
+@keyframes head { from { left: 18%; } }
