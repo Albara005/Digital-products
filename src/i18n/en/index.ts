@@ -76,11 +76,11 @@ export const en: Dictionary = {
     emptyText: "We're adding products right now. Check back soon, or contact us if you're looking for something specific.",
     featuredTitle: "Most popular",
     featuredText: "Hand-picked products our gamers keep coming back for.",
-    live: "Delivery is live — around the clock",
-    heroLine1: "Your codes arrive",
-    heroLine2: "in seconds.",
+    live: "Instant top-ups, 24/7",
+    heroLine1: "Top up. Play on.",
+    heroLine2: "At Nitro speed.",
     heroText:
-      "Game gift cards, subscriptions, ready-made accounts and digital services. Pay securely and get your order instantly on your order page — no sign-up, no waiting.",
+      "Steam packages, PlayStation games, streaming subscriptions and PC gear — everything a gamer needs in one place, delivered seconds after you pay.",
     shopNow: "Shop now",
     howItWorks: "How it works",
     stats: [
