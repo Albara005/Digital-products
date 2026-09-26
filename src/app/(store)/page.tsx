@@ -165,20 +165,19 @@ function Hero({ t }: { t: Dictionary }) {
   );
 }
 
-/** Brand artwork: the Nitro crew with a delivered gift card. Its black background blends into the page. */
+/** Brand artwork (transparent): the Nitro crew with a delivered gift card. */
 function HeroVisual() {
   return (
     <div aria-hidden="true" className="relative mx-auto w-full max-w-xl select-none lg:max-w-none">
-      {/* Solid backing so the grid doesn't show through the artwork's dark areas under mix-blend-lighten */}
-      <div className="absolute inset-[4%] -z-[5] rounded-[45%] bg-bg blur-xl" />
+      <div className="absolute inset-[12%] -z-[5] rounded-full bg-volt/15 blur-3xl" />
       <Image
-        src="/brand/hero-mascots.webp"
+        src="/brand/hero-crew.webp"
         alt=""
-        width={1019}
-        height={710}
+        width={1518}
+        height={934}
         priority
-        sizes="(min-width: 1280px) 560px, (min-width: 1024px) 45vw, 92vw"
-        className="h-auto w-full mix-blend-lighten"
+        sizes="(min-width: 1280px) 600px, (min-width: 1024px) 46vw, 92vw"
+        className="h-auto w-full drop-shadow-[0_24px_40px_rgba(0,0,0,0.6)]"
       />
     </div>
   );
