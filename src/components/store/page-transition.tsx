@@ -61,9 +61,8 @@ function Overlay() {
   // Start on internal link clicks. Listening (not intercepting) lets next/link navigate at once,
   // so the overlay adds no delay: it simply covers the swap.
   useEffect(() => {
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
     const onClick = (e: MouseEvent) => {
-      if (reduced.matches || !internalTarget(e)) return;
+      if (!internalTarget(e)) return;
       clearTimers();
       startedAt.current = performance.now();
       setPhase("enter");

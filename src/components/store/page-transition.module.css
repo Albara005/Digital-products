@@ -195,6 +195,23 @@
   }
 }
 
+/* Reduced motion: keep the branded screen, drop the spinning and streaking */
+@media (prefers-reduced-motion: reduce) {
+  .grid,
+  .streaks,
+  .orbit,
+  .orbitInner,
+  .core,
+  .logo,
+  .tile,
+  .caption {
+    animation: none;
+  }
+  .streaks {
+    display: none;
+  }
+}
+
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes fade-out { to { opacity: 0; transform: scale(1.03); } }
 @keyframes grid-run { to { background-position: 0 59px, 0 59px; } }
