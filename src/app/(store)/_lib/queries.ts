@@ -96,7 +96,6 @@ export const getNavCategories = cache(async () => {
   const [locale, rows] = await Promise.all([
     getLocale(),
     prisma.category.findMany({
-      where: { products: { some: listable } },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: { id: true, name: true, nameEn: true, slug: true, imageUrl: true, imageUrlEn: true },
     }),
@@ -111,7 +110,6 @@ export const getNavCategories = cache(async () => {
 export async function getHomeCategories() {
   const locale = await getLocale();
   const rows = await prisma.category.findMany({
-    where: { products: { some: listable } },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: {
       id: true,
