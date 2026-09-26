@@ -5,6 +5,7 @@ import type { HeaderAccount } from "./account-button";
 import { CartProvider } from "./cart-provider";
 import type { NavCategory } from "./category-nav";
 import { CurrencyProvider } from "./currency";
+import { Intro } from "./intro";
 import { PageTransition } from "./page-transition";
 import { StoreFooter } from "./store-footer";
 import { StoreHeader } from "./store-header";
@@ -30,6 +31,7 @@ export async function StoreShell({
     <LocaleProvider locale={locale}>
       <CurrencyProvider initial={currency.selected} options={currency.options} manual={currency.manual}>
         <CartProvider>
+          <Intro />
           <a
             href="#main"
             className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:start-3 focus:z-50 focus:rounded-lg focus:bg-volt focus:px-4 focus:py-2 focus:text-sm focus:font-bold focus:text-bg"

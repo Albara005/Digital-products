@@ -222,6 +222,9 @@ export const enClient: ClientDictionary = {
     retry: "Try again",
     home: "Home",
   },
+  intro: {
+    skip: "Skip",
+  },
   transition: {
     lead: "",
     accent: "Loading",

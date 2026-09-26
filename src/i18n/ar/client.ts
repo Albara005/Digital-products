@@ -226,6 +226,9 @@ export const arClient = {
     retry: "إعادة المحاولة",
     home: "الرئيسية",
   },
+  intro: {
+    skip: "تخطي",
+  },
   transition: {
     lead: "جارٍ ",
     accent: "الانتقال",

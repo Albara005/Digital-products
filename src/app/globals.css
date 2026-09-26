@@ -85,3 +85,8 @@ body {
 @utility badge {
   @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold;
 }
+
+/* No scrolling behind the opening intro */
+html:has(#nitro-intro:not([hidden])) {
+  overflow: hidden;
+}
