@@ -98,10 +98,14 @@ export const getNavCategories = cache(async () => {
     prisma.category.findMany({
       where: { products: { some: listable } },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      select: { id: true, name: true, nameEn: true, slug: true },
+      select: { id: true, name: true, nameEn: true, slug: true, imageUrl: true, imageUrlEn: true },
     }),
   ]);
-  return rows.map(({ nameEn, ...c }) => ({ ...c, name: localized(locale, c.name, nameEn) }));
+  return rows.map(({ nameEn, imageUrlEn, ...c }) => ({
+    ...c,
+    name: localized(locale, c.name, nameEn),
+    imageUrl: localized(locale, c.imageUrl, imageUrlEn),
+  }));
 });
 
 export async function getHomeCategories() {
