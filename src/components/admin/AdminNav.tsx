@@ -171,11 +171,11 @@ export function AdminNav({ admin, awaitingDelivery, logoutAction, currency }: Pr
   const brand = (
     <Link href="/admin" className="flex items-center gap-2.5" onClick={() => setOpen(false)}>
       <Image
-        src="/brand/nitro-logo.webp"
+        src="/brand/nitro-mark.webp"
         alt=""
         width={36}
         height={36}
-        className="size-9 rounded-lg ring-1 ring-border"
+        className="size-9 rounded-lg bg-surface-2 p-1 ring-1 ring-border"
         priority
       />
       <span className="leading-tight">

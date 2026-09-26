@@ -33,12 +33,12 @@ export default async function AdminLoginPage({ searchParams }: PageProps<"/admin
       <div className="relative w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
           <Image
-            src="/brand/nitro-logo.webp"
+            src="/brand/nitro-mark.webp"
             alt="Nitro Store"
             width={72}
             height={72}
             priority
-            className="size-18 rounded-2xl ring-1 ring-border"
+            className="size-18 rounded-2xl bg-surface-2 p-2 ring-1 ring-border"
           />
           <div>
             <h1 className="text-xl font-bold">لوحة تحكم Nitro Store</h1>
