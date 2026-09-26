@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { slugify } from "@/lib/format";
 import type { FormAction, FormState } from "@/app/admin/_lib/form-state";
+import { ImageField } from "./ImageField";
 import { FieldError, FormMessage } from "./ui";
 import { useFormAction } from "./useFormAction";
 
@@ -14,6 +15,8 @@ type CategoryDefaults = {
   slug: string;
   description: string | null;
   descriptionEn: string | null;
+  imageUrl: string | null;
+  imageUrlEn: string | null;
   sortOrder: number;
 };
 
@@ -138,6 +141,22 @@ function CategoryFields({
           defaultValue={category?.descriptionEn ?? ""}
         />
         <FieldError state={state} name="descriptionEn" />
+      </div>
+      <div className="grid gap-5">
+        <ImageField
+          name="imageUrl"
+          label="صورة الفئة"
+          hint="تظهر في «تصفّح الأقسام» بالصفحة الرئيسية. الأفضل مربعة (مثلاً 800×800) بخلفية شفافة، والاسم مكتوب داخلها."
+          defaultUrl={category?.imageUrl}
+          state={state}
+        />
+        <ImageField
+          name="imageUrlEn"
+          label="English image (اختياري)"
+          hint="للمتجر الإنجليزي إن كان الاسم مكتوباً داخل الصورة؛ إن تُركت تظهر الصورة العربية."
+          defaultUrl={category?.imageUrlEn}
+          state={state}
+        />
       </div>
       <div>
         <label htmlFor="cat-sort" className="label">

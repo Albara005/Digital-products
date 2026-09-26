@@ -94,6 +94,9 @@ model Category {
   slug          String    @unique
   description   String?
   descriptionEn String?
+  // Tile artwork for the home page (usually includes the category name); English falls back to Arabic
+  imageUrl      String?
+  imageUrlEn    String?
   sortOrder     Int       @default(0)
   products      Product[]
   coupons       Coupon[]
@@ -454,4 +457,16 @@ model OrderItem {
   review         Review?
 
   @@index([orderId])
+}
+
+// Images uploaded from the admin panel, stored in the database so they survive redeploys
+// (Railway's filesystem is ephemeral). Served at /media/<id>.webp.
+model MediaAsset {
+  id          String   @id @default(cuid())
+  contentType String
+  bytes       Bytes
+  width       Int
+  height      Int
+  size        Int
+  createdAt   DateTime @default(now())
 }

@@ -116,13 +116,16 @@ export async function getHomeCategories() {
       slug: true,
       description: true,
       descriptionEn: true,
+      imageUrl: true,
+      imageUrlEn: true,
       _count: { select: { products: { where: listable } } },
     },
   });
-  return rows.map(({ _count, nameEn, descriptionEn, ...c }) => ({
+  return rows.map(({ _count, nameEn, descriptionEn, imageUrlEn, ...c }) => ({
     ...c,
     name: localized(locale, c.name, nameEn),
     description: localized(locale, c.description, descriptionEn),
+    imageUrl: localized(locale, c.imageUrl, imageUrlEn),
     productCount: _count.products,
   }));
 }

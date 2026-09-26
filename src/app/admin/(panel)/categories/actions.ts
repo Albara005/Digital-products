@@ -8,6 +8,7 @@ import { audit } from "@/lib/audit";
 import { slugify } from "@/lib/format";
 import type { FormState } from "../../_lib/form-state";
 import { requireAdminAccess } from "../../_lib/guard";
+import { imageUrlSchema, resolveImageField } from "../../_lib/images";
 import { fail, fromZod, idSchema, isForeignKeyViolation, isNotFound, isUniqueViolation, ok, str } from "../../_lib/validation";
 
 const categorySchema = z.object({
@@ -17,6 +18,8 @@ const categorySchema = z.object({
   description: z.string().trim().max(1000, "الوصف طويل جداً"),
   nameEn: z.string().trim().max(80, "الاسم الإنجليزي طويل جداً"),
   descriptionEn: z.string().trim().max(1000, "الوصف الإنجليزي طويل جداً"),
+  imageUrl: imageUrlSchema,
+  imageUrlEn: imageUrlSchema,
   sortOrder: z.coerce.number("أدخل رقماً").int("أدخل رقماً صحيحاً").min(-100000).max(100000),
 });
 
@@ -29,6 +32,8 @@ export async function saveCategory(_prev: FormState, formData: FormData): Promis
     description: str(formData, "description"),
     nameEn: str(formData, "nameEn"),
     descriptionEn: str(formData, "descriptionEn"),
+    imageUrl: str(formData, "imageUrl"),
+    imageUrlEn: str(formData, "imageUrlEn"),
     sortOrder: str(formData, "sortOrder") || "0",
   });
   if (!parsed.success) return fromZod(parsed.error);
@@ -36,12 +41,19 @@ export async function saveCategory(_prev: FormState, formData: FormData): Promis
   const slug = slugify(parsed.data.slug || name);
   if (!slug) return fail("تعذّر توليد رابط صالح، اكتب الرابط يدوياً.", { slug: "رابط غير صالح" });
 
+  const image = await resolveImageField(formData, "imageUrl", parsed.data.imageUrl, 1000);
+  if (!image.ok) return fail(image.error, { imageUrl: image.error });
+  const imageEn = await resolveImageField(formData, "imageUrlEn", parsed.data.imageUrlEn, 1000);
+  if (!imageEn.ok) return fail(imageEn.error, { imageUrlEn: imageEn.error });
+
   const data = {
     name,
     nameEn: nameEn || null,
     slug,
     description: description || null,
     descriptionEn: descriptionEn || null,
+    imageUrl: image.url,
+    imageUrlEn: imageEn.url,
     sortOrder,
   };
   let savedId: string;

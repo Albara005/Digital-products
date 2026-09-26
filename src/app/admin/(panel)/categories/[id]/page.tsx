@@ -21,6 +21,8 @@ export default async function EditCategoryPage({ params }: PageProps<"/admin/cat
       slug: true,
       description: true,
       descriptionEn: true,
+      imageUrl: true,
+      imageUrlEn: true,
       sortOrder: true,
       _count: { select: { products: true } },
     },
@@ -44,6 +46,8 @@ export default async function EditCategoryPage({ params }: PageProps<"/admin/cat
             slug: category.slug,
             description: category.description,
             descriptionEn: category.descriptionEn,
+            imageUrl: category.imageUrl,
+            imageUrlEn: category.imageUrlEn,
             sortOrder: category.sortOrder,
           }}
         />

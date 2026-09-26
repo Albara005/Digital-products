@@ -9,6 +9,7 @@ import { audit } from "@/lib/audit";
 import { slugify } from "@/lib/format";
 import type { FormState } from "../../_lib/form-state";
 import { requireAdminAccess } from "../../_lib/guard";
+import { resolveImageField } from "../../_lib/images";
 import { formMoneyFx, parseMoneyInput } from "../../_lib/money";
 import type { Fx } from "@/lib/fx";
 import {
@@ -163,6 +164,9 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
   const category = await prisma.category.findUnique({ where: { id: input.categoryId }, select: { id: true } });
   if (!category) return fail("الفئة المختارة غير موجودة.", { categoryId: "اختر فئة" });
 
+  const image = await resolveImageField(formData, "imageUrl", input.imageUrl);
+  if (!image.ok) return fail(image.error, { imageUrl: image.error });
+
   const productData = {
     name: input.name,
     nameEn: input.nameEn || null,
@@ -171,7 +175,7 @@ export async function saveProduct(_prev: FormState, formData: FormData): Promise
     type: input.type,
     description: input.description || null,
     descriptionEn: input.descriptionEn || null,
-    imageUrl: input.imageUrl || null,
+    imageUrl: image.url,
     active: input.active,
     featured: input.featured,
     warrantyHours: input.warrantyHours,

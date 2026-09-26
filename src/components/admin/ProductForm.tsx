@@ -10,6 +10,7 @@ import { PlusIcon, TrashIcon } from "./icons";
 import type { AdminFx } from "./MoneyInput";
 import { FieldError, FormMessage, btnSm } from "./ui";
 import { useFormAction } from "./useFormAction";
+import { ImageField } from "./ImageField";
 
 export type ProductFormVariant = {
   id: string;
@@ -116,7 +117,6 @@ function ProductFields({
   const [slug, setSlug] = useState(product?.slug ?? "");
   const [slugTouched, setSlugTouched] = useState(Boolean(product));
   const [type, setType] = useState<ProductType>(product?.type ?? "CARD");
-  const [imageUrl, setImageUrl] = useState(product?.imageUrl ?? "");
   const [rows, setRows] = useState<Row[]>(() =>
     product?.variants.length
       ? product.variants.map((v) => ({
@@ -464,30 +464,14 @@ function ProductFields({
 
         <section className="card flex flex-col gap-3 p-5">
           <h2 className="font-semibold">الصورة</h2>
-          <div>
-            <label htmlFor="p-img" className="label">
-              رابط الصورة
-            </label>
-            <input
-              id="p-img"
-              name="imageUrl"
-              dir="ltr"
-              className="input text-start"
-              placeholder="https://… أو /products/…"
-              value={imageUrl}
-              maxLength={2000}
-              onChange={(e) => setImageUrl(e.target.value)}
-            />
-            <FieldError state={state} name="imageUrl" />
-          </div>
-          <div className="grid aspect-[4/3] place-items-center overflow-hidden rounded-lg border border-border bg-surface-2">
-            {/^(https?:\/\/|\/(?!\/))/.test(imageUrl.trim()) ? (
-              // eslint-disable-next-line @next/next/no-img-element -- arbitrary admin-supplied URL preview
-              <img src={imageUrl.trim()} alt="معاينة الصورة" className="size-full object-cover" />
-            ) : (
-              <span className="text-xs text-muted">لا توجد صورة</span>
-            )}
-          </div>
+          <ImageField
+            name="imageUrl"
+            label="صورة المنتج"
+            hint="PNG أو JPG أو WebP حتى 5 ميجابايت. تُضغط وتُحفظ تلقائياً."
+            defaultUrl={product?.imageUrl}
+            aspect="wide"
+            state={state}
+          />
         </section>
       </div>
     </div>
