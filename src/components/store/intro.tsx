@@ -11,12 +11,12 @@ const MAX_MS = 6500;
 const FADE_MS = 350;
 
 /**
- * Runs before the page paints (inline, right after the overlay): shows the intro on every full page
- * load (open or refresh) and starts downloading the right video (portrait/landscape, MP4 or WebM) immediately. Skipped for data-saver / 2G.
+ * Runs before the page paints (inline, right after the overlay): shows the intro whenever the store
+ * is opened (not on refresh or back/forward) and starts downloading the right video (portrait/landscape, MP4 or WebM) immediately. Skipped for data-saver / 2G.
  */
-const BOOT = `(function(){try{var o=document.getElementById("${KEY}");if(!o)return;var c=navigator.connection;if(c&&(c.saveData||/2g/.test(c.effectiveType||"")))return;var v=o.querySelector("video");v.src="${BASE}"+(matchMedia("(orientation: portrait)").matches?"tall":"wide")+(v.canPlayType('video/mp4; codecs="avc1.640028"')?".mp4":".webm");o.hidden=false;var p=v.play();p&&p.catch(function(){})}catch(e){}})();`;
+const BOOT = `(function(){try{var o=document.getElementById("${KEY}");if(!o)return;var n=performance.getEntriesByType("navigation")[0];if(n&&n.type!=="navigate")return;var c=navigator.connection;if(c&&(c.saveData||/2g/.test(c.effectiveType||"")))return;var v=o.querySelector("video");v.src="${BASE}"+(matchMedia("(orientation: portrait)").matches?"tall":"wide")+(v.canPlayType('video/mp4; codecs="avc1.640028"')?".mp4":".webm");o.hidden=false;var p=v.play();p&&p.catch(function(){})}catch(e){}})();`;
 
-/** Opening intro video, shown whenever the store is opened or refreshed (not on in-site navigation). */
+/** Opening intro video, shown whenever the store is opened (not on refresh or in-site navigation). */
 export function Intro() {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
