@@ -5,6 +5,7 @@ import type { HeaderAccount } from "./account-button";
 import { CartProvider } from "./cart-provider";
 import type { NavCategory } from "./category-nav";
 import { CurrencyProvider } from "./currency";
+import { PageTransition } from "./page-transition";
 import { StoreFooter } from "./store-footer";
 import { StoreHeader } from "./store-header";
 
@@ -40,6 +41,7 @@ export async function StoreShell({
             {children}
           </main>
           <StoreFooter />
+          <PageTransition />
         </CartProvider>
       </CurrencyProvider>
     </LocaleProvider>

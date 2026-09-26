@@ -1,0 +1,226 @@
+/* Nitro page transition: black stage, glowing N, volt orbit, speed streaks and orbiting tiles. */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(212, 255, 61, 0.14), transparent 32%),
+    radial-gradient(circle at 50% 45%, #0f1400 0%, #060706 55%, #000 100%);
+  animation: fade-in 140ms ease-out both;
+  cursor: progress;
+}
+
+.leaving {
+  animation: fade-out 180ms ease-in both;
+  pointer-events: none;
+}
+
+/* Receding perspective grid on the floor */
+.grid {
+  position: absolute;
+  inset: 45% -30% -30%;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 58px, rgba(212, 255, 61, 0.07) 58px 59px),
+    repeating-linear-gradient(0deg, transparent 0 58px, rgba(212, 255, 61, 0.05) 58px 59px);
+  transform: perspective(600px) rotateX(62deg);
+  transform-origin: top;
+  mask-image: linear-gradient(to bottom, black, transparent 85%);
+  animation: grid-run 0.6s linear infinite;
+}
+
+/* Horizontal light streaks shooting across */
+.streaks {
+  position: absolute;
+  inset: 0;
+}
+.streaks span {
+  position: absolute;
+  left: 0;
+  height: 2px;
+  width: 38vw;
+  border-radius: 99px;
+  background: linear-gradient(90deg, transparent, rgba(212, 255, 61, 0.9), transparent);
+  filter: drop-shadow(0 0 6px rgba(212, 255, 61, 0.8));
+  opacity: 0;
+  animation: streak 0.55s cubic-bezier(0.3, 0.6, 0.4, 1) infinite;
+}
+.streaks span:nth-child(1) { top: 18%; animation-delay: 0ms; }
+.streaks span:nth-child(2) { top: 31%; width: 22vw; animation-delay: 90ms; }
+.streaks span:nth-child(3) { top: 44%; animation-delay: 200ms; height: 1px; }
+.streaks span:nth-child(4) { top: 57%; width: 28vw; animation-delay: 40ms; }
+.streaks span:nth-child(5) { top: 69%; animation-delay: 160ms; height: 1px; }
+.streaks span:nth-child(6) { top: 80%; width: 18vw; animation-delay: 260ms; }
+.streaks span:nth-child(7) { top: 11%; width: 16vw; animation-delay: 320ms; height: 1px; }
+
+.stage {
+  --size: min(64vw, 22rem);
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--size);
+  height: var(--size);
+}
+
+.core {
+  position: absolute;
+  inset: 22%;
+  border-radius: 50%;
+  background: rgba(212, 255, 61, 0.16);
+  filter: blur(36px);
+  animation: pulse 0.5s ease-in-out infinite alternate;
+}
+
+.orbit,
+.orbitInner {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+.orbit {
+  inset: 4%;
+  border-color: rgba(212, 255, 61, 0.1);
+  border-top-color: var(--volt);
+  border-inline-end-color: rgba(212, 255, 61, 0.4);
+  filter: drop-shadow(0 0 10px rgba(212, 255, 61, 0.7));
+  animation: spin 0.9s linear infinite;
+}
+.orbitInner {
+  inset: 16%;
+  border-bottom-color: var(--volt);
+  border-inline-start-color: rgba(212, 255, 61, 0.3);
+  filter: drop-shadow(0 0 8px rgba(212, 255, 61, 0.6));
+  animation: spin 0.7s linear infinite reverse;
+}
+
+.logo {
+  position: relative;
+  width: 42%;
+  height: auto;
+  filter: drop-shadow(0 0 10px rgba(212, 255, 61, 0.85)) drop-shadow(0 0 30px rgba(212, 255, 61, 0.45));
+  animation: logo-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Tiles sit on the orbit (angle set per tile) and float in */
+.tile {
+  --angle: 0deg;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  margin: -1.3rem 0 0 -1.3rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(212, 255, 61, 0.45);
+  background: rgba(20, 20, 20, 0.85);
+  color: var(--volt);
+  box-shadow: 0 0 18px -4px rgba(212, 255, 61, 0.6);
+  transform: rotate(var(--angle)) translateY(calc(var(--size) * -0.56)) rotate(calc(var(--angle) * -1));
+  animation: tile-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.tile svg {
+  width: 55%;
+  height: 55%;
+}
+.tile:nth-of-type(1) { --angle: -30deg; animation-delay: 20ms; }
+.tile:nth-of-type(2) { --angle: 30deg; animation-delay: 40ms; }
+.tile:nth-of-type(3) { --angle: 90deg; animation-delay: 60ms; }
+.tile:nth-of-type(4) { --angle: 150deg; animation-delay: 80ms; }
+.tile:nth-of-type(5) { --angle: 210deg; animation-delay: 100ms; }
+.tile:nth-of-type(6) { --angle: 270deg; animation-delay: 120ms; }
+
+.caption {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  animation: rise 0.35s 60ms ease-out both;
+}
+.brand {
+  margin: 0;
+  font-size: clamp(1.5rem, 4vw, 2.25rem);
+  font-weight: 800;
+  line-height: 1.1;
+  color: #fff;
+}
+.brand span {
+  color: var(--volt);
+  text-shadow: 0 0 24px rgba(212, 255, 61, 0.5);
+}
+.label {
+  margin: 0;
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.62);
+}
+.bar {
+  width: min(18rem, 60vw);
+  height: 4px;
+  margin-top: 0.25rem;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #a8cc2a, var(--volt), #efffb8);
+  box-shadow: 0 0 14px var(--volt);
+  transform-origin: left;
+  animation: progress 0.32s cubic-bezier(0.3, 0.7, 0.4, 1) both;
+}
+:global([dir="rtl"]) .bar span {
+  transform-origin: right;
+}
+.leaving .bar span {
+  animation: none;
+  transform: scaleX(1);
+  transition: transform 120ms ease-out;
+}
+
+@media (max-width: 480px) {
+  .tile {
+    width: 2.2rem;
+    height: 2.2rem;
+    margin: -1.1rem 0 0 -1.1rem;
+  }
+}
+
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes fade-out { to { opacity: 0; transform: scale(1.03); } }
+@keyframes grid-run { to { background-position: 0 59px, 0 59px; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse {
+  from { transform: scale(0.85); opacity: 0.55; }
+  to { transform: scale(1.15); opacity: 1; }
+}
+@keyframes logo-in {
+  0% { opacity: 0; transform: scale(0.55) rotate(-8deg); }
+  70% { opacity: 1; transform: scale(1.08) rotate(2deg); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes tile-in {
+  from {
+    opacity: 0;
+    transform: rotate(var(--angle)) translateY(calc(var(--size) * -0.3)) rotate(calc(var(--angle) * -1)) scale(0.6);
+  }
+}
+@keyframes streak {
+  0% { opacity: 0; transform: translateX(-40vw); }
+  25% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(130vw); }
+}
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+@keyframes progress {
+  from { transform: scaleX(0.05); }
+  to { transform: scaleX(0.85); }
+}

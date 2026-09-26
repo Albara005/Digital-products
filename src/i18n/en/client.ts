@@ -222,4 +222,7 @@ export const enClient: ClientDictionary = {
     retry: "Try again",
     home: "Home",
   },
+  transition: {
+    label: "Loading…",
+  },
 };

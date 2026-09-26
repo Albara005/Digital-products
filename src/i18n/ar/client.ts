@@ -226,6 +226,9 @@ export const arClient = {
     retry: "إعادة المحاولة",
     home: "الرئيسية",
   },
+  transition: {
+    label: "جارٍ الانتقال…",
+  },
 };
 
 export type ClientDictionary = typeof arClient;
