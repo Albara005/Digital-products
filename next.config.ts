@@ -8,6 +8,15 @@ const nextConfig: NextConfig = {
   experimental: {
     serverActions: { bodySizeLimit: "12mb" },
   },
+  // The intro plays on every visit: let browsers reuse the video instead of revalidating each time
+  async headers() {
+    return [
+      {
+        source: "/intro/:file*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }],
+      },
+    ];
+  },
   env: {
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || railwayUrl || "http://localhost:3000",
   },
